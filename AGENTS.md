@@ -43,9 +43,14 @@ Contract and constraints. The artifact is a single `SKILL.md` (frontmatter `name
 triggers on "improve mutation coverage / improve the mutation score / strengthen Java tests") plus the
 `.claude-plugin` manifest — no project-specific scripts. The procedure it encodes: **detect the JDK the project actually needs
 (`detect-java-version`) and run every build/test/PIT command under it** — a too-new JDK crashes PIT's forked
-minion; detect build tool (`pom.xml` → `pitest-maven`, `build.gradle` → `gradle-pitest-plugin`; JUnit 5 needs
-the `pitest-junit5-plugin` on the PIT plugin classpath, and a minion crash = test-instrumentation too old for
-the JDK → apply Mockito/ByteBuddy floors or `--add-opens`); run PIT scoped to **one** logic-dense,
+minion; detect the **build tool** (`pom.xml` → `pitest-maven`, `build.gradle` → `gradle-pitest-plugin`) AND the
+**unit-testing framework**, then take the framework-specific PIT-wiring path: **JUnit 4** → the bare
+`mutationCoverage` goal (no plugin); **JUnit 5** → add `pitest-junit5-plugin` to the PIT plugin classpath;
+**JUnit 6** (versioning unified, platform == jupiter version) → a current PIT + `pitest-junit5-plugin` plus a
+`junit-platform-launcher` pinned to the project's platform version so engine and launcher align (otherwise
+the minion dies with `OutputDirectoryCreator not available`); **TestNG** → its own wiring. Inject the PIT
+plugin into the project's main `<build>`, never a `<profile>` build. A minion crash on a too-new JDK =
+test-instrumentation too old → apply Mockito/ByteBuddy floors or `--add-opens`; run PIT scoped to **one** logic-dense,
 already-line-covered class (whole-repo mutation is too expensive); read each survivor (`file:line:mutator`)
 from the PIT report; add tests that make the suite detect it by asserting the **correct** behaviour; re-run PIT scoped to
 confirm the lift; keep the improvement **only if every originally-passing test still passes and no existing assertion
