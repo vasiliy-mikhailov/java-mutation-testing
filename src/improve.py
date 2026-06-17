@@ -38,7 +38,7 @@ def _run_one(t, open_pr):
     try:
         gate.clone(t["repo"], dest=str(PROJECT / dest))
         r = panel.run_agent("openhands", dest, t["target_class"], t["target_tests"],
-                            t["test_file"], t["src_file"], timeout=1800, open_pr=open_pr)
+                            t["test_file"], t["src_file"], timeout=3000, open_pr=open_pr)
         url = (r.get("pr") or {}).get("url")
         sb, sa, kb, ka = r.get("score_before"), r.get("score_after"), r.get("killed_before"), r.get("killed_after")
         gain = "" if sa is None else "  %.3f->%.3f reward=+%d" % (sb, sa, (ka - kb))
