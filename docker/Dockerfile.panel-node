@@ -1,0 +1,19 @@
+# jmt-panel-node: the opencode + kilocode legs of the P3 panel. Sandbox base (JDK21+Maven+git
+# +Nexus) so the agent runs PIT itself; + Node 20 and the two headless CLIs. Provider configs
+# (qwen, apiKey:{env:OC_KEY}) baked at /cfg; the runner copies them to ~/.config/{opencode,kilo}.
+FROM java-21-mutation-testing-sandbox
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      curl ca-certificates gnupg jq unzip \
+ && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+ && apt-get install -y --no-install-recommends nodejs \
+ && rm -rf /var/lib/apt/lists/*
+RUN npm install -g opencode-ai @kilocode/cli
+COPY docker/opencode.json /cfg/opencode.json
+COPY docker/kilo.json /cfg/kilo.json
+RUN install -m 0755 -d /etc/apt/keyrings \
+ && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
+ && chmod a+r /etc/apt/keyrings/docker.asc \
+ && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list \
+ && apt-get update && apt-get install -y --no-install-recommends docker-ce-cli \
+ && rm -rf /var/lib/apt/lists/*
+ENV LANG=C.UTF-8 LC_ALL=C.UTF-8

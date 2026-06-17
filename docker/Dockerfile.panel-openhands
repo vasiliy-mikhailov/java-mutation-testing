@@ -1,0 +1,17 @@
+# jmt-panel-openhands: the OpenHands leg of the P3 panel. Sandbox base (JDK21+Maven+git+Nexus
+# settings) so the agent runs PIT itself; + a Python 3.12 venv with the OpenHands SDK (needs 3.12).
+FROM java-21-mutation-testing-sandbox
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3 python3-pip curl ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN pip3 install --no-cache-dir --break-system-packages uv \
+ || pip3 install --no-cache-dir uv
+RUN uv venv --python 3.12 /opt/ohvenv \
+ && uv pip install --python /opt/ohvenv/bin/python \
+      openhands-sdk==1.26.0 openhands-tools==1.26.0
+RUN install -m 0755 -d /etc/apt/keyrings \
+ && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
+ && chmod a+r /etc/apt/keyrings/docker.asc \
+ && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list \
+ && apt-get update && apt-get install -y --no-install-recommends docker-ce-cli \
+ && rm -rf /var/lib/apt/lists/*
+ENV LANG=C.UTF-8 LC_ALL=C.UTF-8

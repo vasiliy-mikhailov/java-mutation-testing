@@ -1,0 +1,16 @@
+# jmt-orch: orchestration container. Runs the pipeline python (discover/gate/pit/killtests),
+# spawns java-<JDK>-mutation-testing-sandbox siblings via the mounted docker socket, clones
+# via gh. No JDK/Maven here — all heavy build/PIT work happens in sandbox containers.
+FROM python:3-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl gnupg git \
+ && install -m 0755 -d /etc/apt/keyrings \
+ && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
+ && chmod a+r /etc/apt/keyrings/docker.asc \
+ && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list \
+ && apt-get update && apt-get install -y --no-install-recommends docker-ce-cli \
+ && curl -fsSL https://github.com/cli/cli/releases/download/v2.62.0/gh_2.62.0_linux_amd64.tar.gz | tar -xz -C /tmp \
+ && mv /tmp/gh_2.62.0_linux_amd64/bin/gh /usr/local/bin/gh \
+ && rm -rf /var/lib/apt/lists/* /tmp/gh_2.62.0_linux_amd64
+RUN pip install --no-cache-dir openai requests
+WORKDIR /work

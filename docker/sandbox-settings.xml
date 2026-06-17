@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- java-mutation-testing sandbox: route ALL Maven artifact resolution through the on-host
+     Nexus group repo so PIT/build runs hit the warm cache instead of upstreams (fast, ban-proof).
+     Reachable as host `nexus` on the `mvn-cache` docker network (sandbox containers join it). -->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
+  <mirrors>
+    <mirror>
+      <id>nexus</id>
+      <name>nexus maven-public group</name>
+      <mirrorOf>*</mirrorOf>
+      <url>http://nexus:8081/repository/maven-public/</url>
+    </mirror>
+  </mirrors>
+</settings>

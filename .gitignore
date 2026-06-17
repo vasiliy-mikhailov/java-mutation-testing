@@ -1,0 +1,8 @@
+.env
+corpus/
+clones/
+scratch/
+*.log
+src/_*.py
+__pycache__/
+*.pyc

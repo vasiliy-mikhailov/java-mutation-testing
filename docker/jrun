@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# jrun <jdk> <shell-command> — run a build/test/PIT command inside the java-<jdk>-mutation-testing-
+# sandbox container, over the CURRENT workspace dir, Nexus-routed, warm m2/gradle caches. Lets a
+# panel agent reproduce/run tooling under the project's detected JDK (per the detect-java-version
+# skill). Mounted into the panel container at runtime (not baked) so it is editable without rebuild.
+#   jrun 17 'mvn -B -ntp test'
+#   jrun 17 'mvn -B org.pitest:pitest-maven:1.16.1:mutationCoverage -DtargetClasses=... -DtargetTests=...'
+set -euo pipefail
+JDK="$1"; shift
+SETTINGS="${JMT_HOME:?JMT_HOME unset}/docker/sandbox-settings.xml"
+exec docker run --rm --network mvn-cache \
+  -v "$PWD":"$PWD" -w "$PWD" \
+  -v oh-m2-cache:/root/.m2 -v oh-gradle-cache:/root/.gradle \
+  -v "$SETTINGS":/root/.m2/settings.xml:ro \
+  "java-${JDK}-mutation-testing-sandbox" bash -lc "$*"

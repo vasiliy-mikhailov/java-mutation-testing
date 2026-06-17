@@ -1,0 +1,16 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "qwen": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Qwen FP8 (self-hosted)",
+      "options": {
+        "baseURL": "https://inference.mikhailov.tech/qwen-3.6-27b-fp8/v1",
+        "apiKey": "{env:OC_KEY}"
+      },
+      "models": { "qwen-3.6-27b-fp8": { "name": "Qwen 3.6 27B FP8" } }
+    }
+  },
+  "model": "qwen/qwen-3.6-27b-fp8",
+  "permission": { "edit": "allow", "bash": "allow", "webfetch": "allow" }
+}
