@@ -57,7 +57,7 @@ def _spec(agent, abs_repo, prompt, timeout):
     q = shlex.quote(prompt)
     if agent == "openhands":
         envs = ["-e", f"OC_BASE={env('QWEN_BASE_URL')}", "-e", f"OC_MODEL={env('QWEN_MODEL')}",
-                "-e", f"OC_KEY={key}", "-e", "OH_MAX_ITER=80"]
+                "-e", f"OC_KEY={key}", "-e", "OH_MAX_ITER=120"]
         inner = (f"timeout {timeout} /opt/ohvenv/bin/python "
                  f"{PROJECT}/src/panel_oh_run.py {abs_repo} {q}")
         return "jmt-panel-openhands", envs, inner
