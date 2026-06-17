@@ -6,7 +6,7 @@ FP8), identical scoring (pit.py, ours — the agent never self-reports). PASS if
 the suite stayed green AND no existing @Test was removed (append-only conserved). A
 starved/misconfigured agent fakes a FAIL — see the thinking-budget + panel-config lessons.
 """
-import os, re, json, time, shutil, shlex, subprocess
+import os, re, json, time, shutil, shlex, subprocess, uuid
 import pit, sandbox, jdkdetect
 from common import PROJECT, env, log, CORPUS
 
@@ -72,7 +72,7 @@ def _spec(agent, abs_repo, prompt, timeout):
 
 def _run_container(agent, abs_repo, prompt, timeout):
     image, envs, inner = _spec(agent, abs_repo, prompt, timeout)
-    name = f"jmt-panel-{agent}-{int(time.time())}"
+    name = f"jmt-panel-{agent}-{int(time.time())}-{uuid.uuid4().hex[:6]}"
     args = (["docker", "run", "--rm", "--name", name, "--network", sandbox.NETWORK,
              "--memory", "6g", "--cpus", "4"] + envs +
             ["-v", f"{PROJECT}:{PROJECT}", "-v", "/var/run/docker.sock:/var/run/docker.sock",

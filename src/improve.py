@@ -1,13 +1,17 @@
-"""Perpetual OpenHands improvement queue. Runs FOREVER: each cycle draws the ranked corpus,
-processes already-PASSED targets FIRST (re-improve / re-score them under the current skill), then
-every other ranked target; sleeps + redraws when the corpus is momentarily dry (dig keeps filling).
-Opens a private-mirror PR only the FIRST time a class passes (no duplicate PRs on re-runs). Reaps
-each clone. No cap — stop with `docker rm -f jmt-improve`.
-  python improve.py [cycle_sleep_secs=600] [pool=500]
+"""Perpetual OpenHands improvement queue (parallel). Runs FOREVER: each cycle draws the ranked
+corpus, processes already-PASSED targets FIRST (re-improve / re-score under the current skill), then
+every other ranked target, across IMPROVE_WORKERS parallel OpenHands runs. Sleeps + redraws when the
+corpus is momentarily dry (dig keeps filling). Opens a private-mirror PR only the FIRST time a class
+passes (no duplicate PRs on re-runs). Each target gets its own clone dir + uniquely-named panel
+container, so workers never collide. No cap — stop with `docker rm -f jmt-improve`.
+  python improve.py [cycle_sleep_secs=600] [pool=500]   (workers via IMPROVE_WORKERS env, default 2)
 """
-import sys, json, glob, subprocess, time
+import sys, os, json, glob, subprocess, time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import draw, gate, panel
 from common import PROJECT, log
+
+IMPROVE_WORKERS = int(os.environ.get("IMPROVE_WORKERS", "2"))
 
 
 def _verdicts():
@@ -29,7 +33,8 @@ def _verdicts():
 
 
 def _run_one(t, open_pr):
-    dest = "clones/improve_" + t["repo"].replace("/", "_")
+    # unique dest per (repo, class) so parallel workers never share a clone dir
+    dest = "clones/improve_" + t["repo"].replace("/", "_") + "__" + t["target_class"].rsplit(".", 1)[-1]
     try:
         gate.clone(t["repo"], dest=str(PROJECT / dest))
         r = panel.run_agent("openhands", dest, t["target_class"], t["target_tests"],
@@ -48,26 +53,26 @@ def _run_one(t, open_pr):
 
 
 def main(cycle_sleep=600, pool=500):
-    log("slow", "improve_start", mode="perpetual_passed_first", pool=pool)
+    log("slow", "improve_start", mode="perpetual_passed_first", workers=IMPROVE_WORKERS, pool=pool)
     cycle = 0
-    while True:
-        cycle += 1
-        cands = draw.draw(pool)
-        if not cands:
-            log("slow", "improve_dry_sleep", cycle=cycle)
-            time.sleep(cycle_sleep)
-            continue
-        passed, has_pr = _verdicts()
-        front = [t for t in cands if t["target_class"] in passed]      # already passed -> front
-        rest  = [t for t in cands if t["target_class"] not in passed]
-        queue = front + rest
-        log("slow", "improve_cycle", cycle=cycle, total=len(queue), passed_first=len(front))
-        for t in queue:
-            open_pr = t["target_class"] not in has_pr                  # PR only first time a class passes
-            v = _run_one(t, open_pr)
-            if v in ("PASS", "PASS_BUT_NOT_CONSERVED"):
-                has_pr.add(t["target_class"])
-        log("slow", "improve_cycle_done", cycle=cycle)
+    with ThreadPoolExecutor(max_workers=IMPROVE_WORKERS) as ex:
+        while True:
+            cycle += 1
+            cands = draw.draw(pool)
+            if not cands:
+                log("slow", "improve_dry_sleep", cycle=cycle)
+                time.sleep(cycle_sleep)
+                continue
+            passed, has_pr = _verdicts()
+            front = [t for t in cands if t["target_class"] in passed]      # already passed -> front
+            rest  = [t for t in cands if t["target_class"] not in passed]
+            queue = front + rest
+            log("slow", "improve_cycle", cycle=cycle, total=len(queue),
+                passed_first=len(front), workers=IMPROVE_WORKERS)
+            futs = [ex.submit(_run_one, t, t["target_class"] not in has_pr) for t in queue]
+            for _ in as_completed(futs):
+                pass
+            log("slow", "improve_cycle_done", cycle=cycle)
 
 
 if __name__ == "__main__":
