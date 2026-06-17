@@ -84,7 +84,7 @@ def _run_container(agent, abs_repo, prompt, timeout):
 
 
 def run_agent(agent, repo_dir, target_class, target_tests, test_file, src_file,
-              jdk=21, timeout=2400):
+              jdk=21, timeout=2400, open_pr=True):
     assert agent in AGENTS, agent
     abs_repo = sandbox.abs_repo(repo_dir)
     jdk = jdkdetect.detect_jdk(abs_repo)
@@ -135,7 +135,7 @@ def run_agent(agent, repo_dir, target_class, target_tests, test_file, src_file,
         "total": base["total"], "tests_before": ntests_before, "tests_after": ntests_after,
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "log_tail": out[-1500:],
     }
-    if verdict in ("PASS", "PASS_BUT_NOT_CONSERVED"):
+    if open_pr and verdict in ("PASS", "PASS_BUT_NOT_CONSERVED"):
         try:
             import pr
             result["pr"] = pr.open_panel_pr(repo_dir, result, agent)
