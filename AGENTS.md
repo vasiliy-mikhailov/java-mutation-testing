@@ -1,9 +1,9 @@
 # AGENTS.md — java-mutation-testing
 
-What this is. A research project whose **product is a portable Agent Skill bundle** — `detect-java-version` + `kill-surviving-mutants`
+What this is. A research project whose **product is a portable Agent Skill bundle** — `detect-java-version` + `improve-mutation-score`
 (one `SKILL.md` each, markdown + YAML frontmatter) — that a coding agent loads under **OpenHands (primary),
 opencode, or kilocode** and follows to **raise a Java repo's PIT mutation kill-rate**: detect the JDK the
-project needs, then find code the tests run but don't verify, add tests that kill the surviving mutants under
+project needs, then find code the tests run but don't verify, add tests that make the suite detect the surviving mutants under
 that JDK, keep only green improvements, open a PR. The harness triggers the skill; the host agent does the work
 with **standard tools only** (the build's PIT plugin, the matching JDK, `git`, `gh`) — the skill is
 instructions, not a program we ship. Everything else in this repo
@@ -40,18 +40,18 @@ strength signal, and line coverage that kills no mutants is code executed but un
 a hand manual any agent under any of the three harnesses can follow — so it must lean only on tools all three
 share, and must be good enough that the agent, not us, does the killing.
 Contract and constraints. The artifact is a single `SKILL.md` (frontmatter `name` + a `description` that
-triggers on "improve mutation coverage / kill surviving mutants / strengthen Java tests") plus the
+triggers on "improve mutation coverage / improve the mutation score / strengthen Java tests") plus the
 `.claude-plugin` manifest — no project-specific scripts. The procedure it encodes: **detect the JDK the project actually needs
 (`detect-java-version`) and run every build/test/PIT command under it** — a too-new JDK crashes PIT's forked
 minion; detect build tool (`pom.xml` → `pitest-maven`, `build.gradle` → `gradle-pitest-plugin`; JUnit 5 needs
 the `pitest-junit5-plugin` on the PIT plugin classpath, and a minion crash = test-instrumentation too old for
 the JDK → apply Mockito/ByteBuddy floors or `--add-opens`); run PIT scoped to **one** logic-dense,
 already-line-covered class (whole-repo mutation is too expensive); read each survivor (`file:line:mutator`)
-from the PIT report; add tests that kill it by asserting the **correct** behaviour; re-run PIT scoped to
-confirm the kill; keep a kill **only if every originally-passing test still passes and no existing assertion
+from the PIT report; add tests that make the suite detect it by asserting the **correct** behaviour; re-run PIT scoped to
+confirm the lift; keep the improvement **only if every originally-passing test still passes and no existing assertion
 was weakened** — additions are **append-only**, an existing test is never edited; recognize equivalent mutants
-and set them aside; then branch, commit the additions, and open a **private-mirror PR** (test-only diff) whose body states the score before→after.
-A kill must come from a stronger test, never a laxer one.
+and set them aside; **(framing: the skill IMPROVES the mutation score by strengthening tests to DETECT what the suite misses — not "killing"; PIT still labels a detected mutant KILLED, the tool's term)** then branch, commit the additions, and open a **private-mirror PR** (test-only diff) whose body states the score before→after.
+The score must rise from a STRONGER test, never a laxer one.
 Solution search approach and hints: coverage first — a high-line-coverage, low-mutation-score class is the
 richest target. Per survivor, read the mutated operator+line and write the minimal assertion that
 distinguishes original from mutant. Don't chase equivalent mutants — recognize the no-observable-effect

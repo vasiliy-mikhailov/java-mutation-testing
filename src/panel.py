@@ -10,21 +10,21 @@ import os, re, json, time, shutil, shlex, subprocess
 import pit, sandbox, jdkdetect
 from common import PROJECT, env, log, CORPUS
 
-SKILL_SRC = PROJECT / "skills" / "kill-surviving-mutants" / "SKILL.md"
-SKILL_REL = ".openhands/skills/kill-surviving-mutants/SKILL.md"
+SKILL_SRC = PROJECT / "skills" / "improve-mutation-score" / "SKILL.md"
+SKILL_REL = ".openhands/skills/improve-mutation-score/SKILL.md"
 TEST_ANNO = re.compile(r"@(Test|ParameterizedTest|RepeatedTest)\b")
 AGENTS = ("openhands", "opencode", "kilocode")
 
 PROMPT = (
     "This Maven project's tests pass but do not fully verify class `{cls}`. Raise its PIT "
     "mutation score. READ the skills in `.openhands/skills/` FIRST: `detect-java-version` and "
-    "`kill-surviving-mutants` (`{skill}`).\n"
+    "`improve-mutation-score` (`{skill}`).\n"
     "THIS ENVIRONMENT HAS NO LOCAL JDK SWITCHING. Run EVERY maven/test/PIT command inside the "
     "correct JDK container via the `jrun` helper: `jrun <JDK> \'<command>\'` "
     "(e.g. `jrun 17 \'mvn -B -ntp test\'`). FIRST detect the project JDK, then use it for all "
     "commands.\n"
     "Target ONLY `{cls}` (scope PIT with -DtargetClasses={cls} -DtargetTests={tests}). Add new "
-    "JUnit test methods that kill the surviving mutants; do NOT modify or weaken existing tests. "
+    "JUnit test methods that make the suite detect the surviving mutants (raise the mutation score); do NOT modify or weaken existing tests. "
     "Finish when the scoped PIT mutation score is higher and all tests are still green."
 )
 

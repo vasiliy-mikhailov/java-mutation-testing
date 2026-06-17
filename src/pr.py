@@ -172,7 +172,7 @@ def open_panel_pr(repo_dir, result, agent, min_killed=1):
         _sh(["git", "-C", abs_repo, "add", f])
     msg = (f"test({cls}): {agent} killed {delta} PIT mutants "
            f"({result['score_before']:.1%} -> {result['score_after']:.1%})\n\n"
-           f"Append-only PIT-guided tests via the kill-surviving-mutants skill.\n\n"
+           f"Append-only PIT-guided tests via the improve-mutation-score skill.\n\n"
            f"Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>")
     _sh(["git", "-C", abs_repo, "commit", "-m", msg])
     mirror = _ensure_private_mirror(login, name)
