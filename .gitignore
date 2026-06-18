@@ -6,3 +6,4 @@ scratch/
 src/_*.py
 __pycache__/
 *.pyc
+current_iteration/

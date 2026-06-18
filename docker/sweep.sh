@@ -14,7 +14,7 @@ N="${N:-20}"
 docker rm -f jmt-sweep >/dev/null 2>&1 || true
 docker run -d --name jmt-sweep --restart unless-stopped \
   --network mvn-cache \
-  -e QWEN_API_KEY -e QWEN_BASE_URL -e QWEN_MODEL -e OC_KEY -e JMT_HOME="$ROOT" -e PYTHONDONTWRITEBYTECODE=1 \
+  -e QWEN_API_KEY -e QWEN_BASE_URL -e QWEN_MODEL -e OC_KEY -e JMT_HOME="$ROOT" -e JMT_DATA="$ROOT/current_iteration" -e PYTHONDONTWRITEBYTECODE=1 \
   -v "$ROOT":"$ROOT" -w "$ROOT/src" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v /var/log/observe/app/jmt:/var/log/observe/app/jmt \

@@ -9,9 +9,12 @@ frog's eye auto-discovers them (no wiring). Streams mirror the digest cadence:
 import os, json, time, pathlib
 
 PROJECT = pathlib.Path(os.environ.get("JMT_HOME", os.path.expanduser("~/java-mutation-testing")))
-CLONES = PROJECT / "clones"
-CORPUS = PROJECT / "corpus"
-SCRATCH = PROJECT / "scratch"
+# DATA = the iteration's data root (corpus/clones/scratch); JMT_HOME stays the CODE root.
+# Defaults to PROJECT so the pre-reorg flat layout keeps working unchanged.
+DATA = pathlib.Path(os.environ.get("JMT_DATA", str(PROJECT)))
+CLONES = DATA / "clones"
+CORPUS = DATA / "corpus"
+SCRATCH = DATA / "scratch"
 SETTINGS = PROJECT / "docker" / "sandbox-settings.xml"
 
 LOG_DIR = pathlib.Path("/var/log/observe/app/jmt")

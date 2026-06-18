@@ -6,7 +6,7 @@ Nexus mirror via -s, warm m2/gradle volumes, and an INNER timeout so a hung JVM
 self-exits (a host-side kill would only drop the docker client, not the container).
 """
 import subprocess, shlex, os
-from common import SETTINGS, PROJECT, log
+from common import SETTINGS, PROJECT, DATA, log
 
 NETWORK = "mvn-cache"
 M2_VOL = "oh-m2-cache"
@@ -22,7 +22,7 @@ def abs_repo(repo):
     under JMT_HOME (mounted identically in orch + sandbox), so the host daemon's bind
     mount resolves the same path the orchestrator sees."""
     repo = str(repo)
-    return repo if os.path.isabs(repo) else str(PROJECT / repo)
+    return repo if os.path.isabs(repo) else str(DATA / repo)
 
 
 def ensure_image(jdk):

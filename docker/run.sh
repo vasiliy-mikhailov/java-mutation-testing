@@ -10,7 +10,7 @@ set -a; [ -f .env ] && . ./.env; set +a
 docker rm -f jmt-orch >/dev/null 2>&1 || true
 docker run --rm --name jmt-orch \
   --network mvn-cache \
-  -e QWEN_API_KEY -e QWEN_BASE_URL -e QWEN_MODEL -e JMT_HOME="$ROOT" -e PYTHONDONTWRITEBYTECODE=1 \
+  -e QWEN_API_KEY -e QWEN_BASE_URL -e QWEN_MODEL -e JMT_HOME="$ROOT" -e JMT_DATA="$ROOT/current_iteration" -e PYTHONDONTWRITEBYTECODE=1 \
   -v "$ROOT":"$ROOT" -w "$ROOT/src" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v /var/log/observe/app/jmt:/var/log/observe/app/jmt \
