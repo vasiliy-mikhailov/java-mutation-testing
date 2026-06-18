@@ -1,6 +1,6 @@
 # AGENTS.md — java-mutation-testing
 
-What this is. A research project whose **product is a portable Agent Skill bundle** — `detect-java-version` + `improve-mutation-score`
+What this is. A research project whose **product is a portable Agent Skill bundle** — `detect-java-version` + `detect-unit-testing-framework` + `improve-mutation-score`
 (one `SKILL.md` each, markdown + YAML frontmatter) — that a coding agent loads under **OpenHands (primary),
 opencode, or kilocode** and follows to **raise a Java repo's PIT mutation kill-rate**: detect the JDK the
 project needs, then find code the tests run but don't verify, add tests that make the suite detect the surviving mutants under

@@ -37,11 +37,16 @@ def _install_skill(abs_repo):
     os.makedirs(os.path.join(abs_repo, os.path.dirname(djv)), exist_ok=True)
     shutil.copyfile(str(PROJECT / "skills" / "detect-java-version" / "SKILL.md"),
                     os.path.join(abs_repo, djv))
+    duf = ".openhands/skills/detect-unit-testing-framework/SKILL.md"
+    os.makedirs(os.path.join(abs_repo, os.path.dirname(duf)), exist_ok=True)
+    shutil.copyfile(str(PROJECT / "skills" / "detect-unit-testing-framework" / "SKILL.md"),
+                    os.path.join(abs_repo, duf))
     with open(os.path.join(abs_repo, "AGENTS.md"), "w") as f:
         f.write("# Task skills\n"
                 "1. `" + djv + "` — detect the JDK this project needs.\n"
-                "2. `" + SKILL_REL + "` — raise the PIT mutation score.\n"
-                "Read both and follow them.\n")
+                "2. `" + duf + "` — detect the unit-testing framework + version, wire PIT to it.\n"
+                "3. `" + SKILL_REL + "` — raise the PIT mutation score.\n"
+                "Read all three and follow them.\n")
 
 
 def _ntests(path):

@@ -27,9 +27,9 @@ tool's vocabulary; our job is to make the suite *catch* what it currently misses
 - **Green baseline.** PIT refuses to run if any in-scope test already fails. Confirm the suite is
   green first; tests already red in the baseline (no DB/network/Docker) are **not** your concern —
   scope PIT away from them.
-- **Detect the test framework and version:** JUnit 4 vs JUnit 5 vs **JUnit 6** (both Jupiter — check the
-  jupiter **version**: `>= 6.0` is JUnit 6 and needs different PIT wiring) vs TestNG — the framework changes
-  how PIT is wired (§2) and how you write the new tests.
+- **Detect the test framework and version FIRST** — follow the **`detect-unit-testing-framework`** skill
+  (JUnit 4 / 5 / **6** / TestNG, resolving `${...}`/BOM version indirection). It decides how PIT is wired
+  (§2) and how you write the new tests; the wrong wiring makes PIT find 0 tests or crash its minion.
 - `git` — commit a baseline first so your additions are an isolated diff.
 
 ## 1. Pick one target class
