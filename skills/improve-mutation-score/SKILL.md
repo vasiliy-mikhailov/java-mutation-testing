@@ -73,7 +73,7 @@ and pin a `junit-platform-launcher` to the project's platform version so engine 
   </dependencies>
 </plugin>
 ```
-**TestNG** — PIT runs it without the junit5 plugin; use the bare `mutationCoverage` goal like JUnit 4.
+**TestNG** — add `pitest-testng-plugin` (`org.pitest:pitest-testng-plugin:1.0.0`) to the PIT plugin's `<dependencies>`; current PIT externalized TestNG (no longer built-in).
 
 Inject the plugin into the project's **main `<build>`**, never a `<profile>` build — a plugin inside an
 inactive profile is silently ignored and PIT runs with no engine (0 coverage).

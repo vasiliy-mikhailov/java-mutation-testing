@@ -51,7 +51,7 @@ then take the framework-specific PIT-wiring path: **JUnit 4** → the bare
 `mutationCoverage` goal (no plugin); **JUnit 5** → add `pitest-junit5-plugin` to the PIT plugin classpath;
 **JUnit 6** (versioning unified, platform == jupiter version) → a current PIT + `pitest-junit5-plugin` plus a
 `junit-platform-launcher` pinned to the project's platform version so engine and launcher align (otherwise
-the minion dies with `OutputDirectoryCreator not available`); **TestNG** → its own wiring. Inject the PIT
+the minion dies with `OutputDirectoryCreator not available`); **TestNG** → add `pitest-testng-plugin` (externalized from PIT, no longer built-in). Inject the PIT
 plugin into the project's main `<build>`, never a `<profile>` build. A minion crash (`UNKNOWN_ERROR`) is **usually wrong wiring** — most often a **JUnit-6 project mis-detected as
 JUnit 5** (resolve the version, above), not a real instrumentation problem — or, under a too-new JDK,
 test-instrumentation too old → apply Mockito/ByteBuddy floors or `--add-opens`; run PIT scoped to **one** logic-dense,
