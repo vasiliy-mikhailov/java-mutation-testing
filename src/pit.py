@@ -196,12 +196,17 @@ def run_pit(repo, target_class, target_tests, jdk=21, timeout=900,
     else:
         goal = f"org.pitest:pitest-maven:{pit_version}:mutationCoverage " + common_d
     S = "-s /sandbox-settings.xml"
+    # skip project quality gates that are hostile to scoped mutation testing (a coverage/style threshold
+    # on the whole build breaks our build when we run a subset) - jacoco check, checkstyle, enforcer, etc.
+    G = ("-Djacoco.skip=true -Dcheckstyle.skip=true -Denforcer.skip=true -Dspotless.check.skip=true "
+         "-Dspotless.apply.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dforbiddenapis.skip=true "
+         "-Danimal.sniffer.skip=true -Dmaven.javadoc.skip=true -Dlicense.skip=true")
     if module == ".":
-        cmd = f"mvn -B {S} -DskipTests test-compile && mvn -B {S} {goal}"
+        cmd = f"mvn -B {S} {G} -DskipTests test-compile && mvn -B {S} {G} {goal}"
     else:
         # build the module + its reactor deps (install to local repo), then PIT only on the module
-        cmd = (f"mvn -B {S} -pl {module} -am -DskipTests install && "
-               f"mvn -B {S} -pl {module} {goal}")
+        cmd = (f"mvn -B {S} {G} -pl {module} -am -DskipTests install && "
+               f"mvn -B {S} {G} -pl {module} {goal}")
     rc, out = _sandbox.run(cmd, repo, jdk=jdk, timeout=timeout)
     report = os.path.join(pom_dir, "target", "pit-reports", "mutations.xml")
     result = {"rc": rc, "report": report, "ok": False, "junit5": j5, "module": module,

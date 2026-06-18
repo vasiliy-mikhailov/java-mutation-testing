@@ -171,6 +171,12 @@ detected, and that the additions are append-only and green.
 ---
 
 ## Gotchas
+- **Project quality gates fight mutation testing — skip them.** A `jacoco:check` coverage threshold, or
+  `checkstyle` / `enforcer` / `spotless` / `pmd` / `spotbugs`, will **fail the build** when you add tests to
+  one class (they judge the whole project / style, not your scoped change). On every `mvn`/PIT command pass
+  **`-Djacoco.skip=true -Dcheckstyle.skip=true -Denforcer.skip=true -Dspotless.check.skip=true -Dpmd.skip=true
+  -Dspotbugs.skip=true`**. A green scoped PIT run is the only gate that matters — do not chase a project
+  coverage threshold.
 - **JUnit 5 + PIT** needs `pitest-junit5-plugin` (§2); without it PIT reports *0 tests* / all
   `NO_COVERAGE`. That symptom means wrong wiring, not bad coverage.
 - **PIT's bundled platform too old for new JUnit** — if the project is on **JUnit 5.11+ / 6.x**
