@@ -5,7 +5,7 @@ container, never host rm. disk_free_gb() lets drivers refuse to start a PIT run 
 is near full.
 """
 import os, shutil, subprocess
-from common import PROJECT, CLONES, log
+from common import PROJECT, CLONES, DATA, log
 
 
 def disk_free_gb(path="/"):
@@ -31,7 +31,7 @@ def reap_build_dirs():
 
 def reap_clone(repo_dir):
     """Drop a whole clone (root-owned trees included) via a root container."""
-    d = repo_dir if os.path.isabs(repo_dir) else str(PROJECT / repo_dir)
+    d = repo_dir if os.path.isabs(repo_dir) else str(DATA / repo_dir)
     subprocess.run(["docker", "run", "--rm", "-v", f"{os.path.dirname(d)}:{os.path.dirname(d)}",
                     "python:3-slim", "rm", "-rf", d], check=False)
     log("fast", "reap_clone", dir=d, free_gb=round(disk_free_gb(), 1))

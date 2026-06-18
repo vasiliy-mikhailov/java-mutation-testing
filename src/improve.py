@@ -9,7 +9,7 @@ container, so workers never collide. No cap — stop with `docker rm -f jmt-impr
 import sys, os, json, glob, subprocess, time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import draw, gate, panel
-from common import PROJECT, log
+from common import PROJECT, CORPUS, DATA, log
 
 IMPROVE_WORKERS = int(os.environ.get("IMPROVE_WORKERS", "2"))
 
@@ -17,7 +17,7 @@ IMPROVE_WORKERS = int(os.environ.get("IMPROVE_WORKERS", "2"))
 def _verdicts():
     """(passed_classes, classes_with_a_pr) from prior panel result files."""
     passed, has_pr = set(), set()
-    for f in glob.glob(str(PROJECT / "corpus" / "panel" / "*.json")):
+    for f in glob.glob(str(CORPUS / "panel" / "*.json")):
         try:
             d = json.load(open(f))
         except Exception:
@@ -36,7 +36,7 @@ def _run_one(t, open_pr):
     # unique dest per (repo, class) so parallel workers never share a clone dir
     dest = "clones/improve_" + t["repo"].replace("/", "_") + "__" + t["target_class"].rsplit(".", 1)[-1]
     try:
-        gate.clone(t["repo"], dest=str(PROJECT / dest))
+        gate.clone(t["repo"], dest=str(DATA / dest))
         r = panel.run_agent("openhands", dest, t["target_class"], t["target_tests"],
                             t["test_file"], t["src_file"], timeout=86400, open_pr=open_pr)
         url = (r.get("pr") or {}).get("url")
@@ -51,7 +51,7 @@ def _run_one(t, open_pr):
         print("%s ERROR %s" % (t["repo"], str(e)[:140]), flush=True)
         return "ERROR"
     finally:
-        subprocess.run(["rm", "-rf", str(PROJECT / dest)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["rm", "-rf", str(DATA / dest)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def main(cycle_sleep=600, pool=500):
