@@ -133,6 +133,9 @@ def run_agent(agent, repo_dir, target_class, target_tests, test_file, src_file,
         "score_after": round(after["score"], 4) if after["ok"] else None,
         "killed_before": base["killed"], "killed_after": after["killed"] if after["ok"] else None,
         "total": base["total"], "tests_before": ntests_before, "tests_after": ntests_after,
+        "line_cov_before": base.get("line_cov"),
+        "line_cov_after": after.get("line_cov") if after["ok"] else None,
+        "lines_total": base.get("line_total"),
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "log_tail": out[-1500:],
     }
     if open_pr and verdict in ("PASS", "PASS_BUT_NOT_CONSERVED"):

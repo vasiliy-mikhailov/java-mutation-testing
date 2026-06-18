@@ -41,7 +41,9 @@ def _run_one(t, open_pr):
                             t["test_file"], t["src_file"], timeout=86400, open_pr=open_pr)
         url = (r.get("pr") or {}).get("url")
         sb, sa, kb, ka = r.get("score_before"), r.get("score_after"), r.get("killed_before"), r.get("killed_after")
-        gain = "" if sa is None else "  %.3f->%.3f reward=+%d" % (sb, sa, (ka - kb))
+        cb, ca = r.get("line_cov_before"), r.get("line_cov_after")
+        cov = "" if (cb is None or ca is None) else "  cov %.0f%%->%.0f%%" % (cb*100, ca*100)
+        gain = "" if sa is None else "  mut %.3f->%.3f reward=+%d%s" % (sb, sa, (ka - kb), cov)
         print("%-44s %-22s %-14s%s  PR=%s" % (t["repo"], t["target_class"].split(".")[-1], r["verdict"], gain, url), flush=True)
         if r["verdict"] == "NO_BASELINE":
             import corpus_queue as _q

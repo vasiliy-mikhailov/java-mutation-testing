@@ -1,7 +1,7 @@
 """Open a PR for a significant kill-test improvement (P2 output).
 
 Significant = killed gain >= MIN_KILLED and score gain >= MIN_GAIN. The PR is append-only test
-additions; the body states the mutation score before->after and the mutants killed.
+additions; the body states the mutation score AND line coverage before->after and the mutants killed.
 
 mode="private" (default): mirror the repo into a PRIVATE repo <login>/jmt-<name>, push the
   unmodified base as `main` and the improved branch, open the PR WITHIN that private repo so the
@@ -45,6 +45,9 @@ def _body(r):
         f"| mutation score | {r['score_before']:.1%} | **{r['score_after']:.1%}** |",
         f"| mutants killed | {r['killed_before']}/{r['total']} | **{r['killed_after']}/{r['total']}** |",
         f"| survivors | {r['total']-r['killed_before']} | {r['total']-r['killed_after']} |",
+        (f"| line coverage | {r['line_cov_before']:.1%} | **{r['line_cov_after']:.1%}** |"
+         if r.get('line_cov_before') is not None and r.get('line_cov_after') is not None
+         else "| line coverage | n/a | n/a |"),
         f"| test methods added | — | {r['tests_added']} |",
         "",
     ]

@@ -195,6 +195,11 @@ def run_pit(repo, target_class, target_tests, jdk=21, timeout=900,
     report = os.path.join(pom_dir, "target", "pit-reports", "mutations.xml")
     result = {"rc": rc, "report": report, "ok": False, "junit5": j5, "module": module,
               "log_tail": out[-3000:]}
+    cm = _re.search(r"Line Coverage[^:]*:\s*(\d+)\s*/\s*(\d+)", out)
+    if cm:
+        cn, cd = int(cm.group(1)), int(cm.group(2))
+        result["line_covered"], result["line_total"] = cn, cd
+        result["line_cov"] = round(cn / cd, 4) if cd else 0.0
     if rc == 0 and os.path.exists(report):
         result.update(parse_report(report))
         result["ok"] = True

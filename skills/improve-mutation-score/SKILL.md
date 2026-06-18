@@ -164,7 +164,7 @@ non-equivalent survivors allow.
 
 ## 7. Open a PR
 Branch, commit the **append-only** test additions (plus the PIT build config if added for JUnit 5),
-and open a PR whose body reports the **mutation score before → after**, the additional mutants now
+and open a PR whose body reports the **mutation score AND line coverage before → after**, the additional mutants now
 detected, and that the additions are append-only and green.
 
 ---
