@@ -42,7 +42,7 @@ def sweep(n_targets=3, agents=AGENTS):
                 log("medium", "sweep_error", agent=agent, repo=t["repo"], err=str(e)[:200])
 
     # tally per-agent
-    INVALID = {"NO_BASELINE"}   # infra (baseline couldn't be scored), not a skill outcome
+    INVALID = {"NO_BASELINE", "AGENT_ERROR"}   # infra (baseline couldn't be scored), not a skill outcome
     tally = {}
     for a in agents:
         rs = [r for r in rows if r.get("agent") == a]

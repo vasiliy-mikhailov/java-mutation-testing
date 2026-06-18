@@ -123,7 +123,8 @@ def run_agent(agent, repo_dir, target_class, target_tests, test_file, src_file,
     conserved = ntests_after >= ntests_before
 
     if not after["ok"]:
-        verdict = "BROKE_BUILD"
+        # agent crashed mid-run (LLM/infra error) and left a partial/broken file -> infra, not a skill fail
+        verdict = "AGENT_ERROR" if rc != 0 else "BROKE_BUILD"
     elif after["killed"] > base["killed"] and conserved:
         verdict = "PASS"
     elif after["killed"] > base["killed"]:

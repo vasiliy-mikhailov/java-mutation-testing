@@ -82,7 +82,9 @@ the agent. Running all three agents per edit is slow and conflates "the skill is
 — separate concerns (see the agent-parity problem).
 Contract and constraints. The learning loop runs **OpenHands only** (the primary/reference agent) against the
 frozen eval set, `SKILL.md` installed at `.openhands/skills/`, driving the fixed FP8 model. Score before/after
-is measured by `src/pit.py` (never self-reported); **NO_BASELINE** (un-scoreable baseline) is excluded from the
+is measured by `src/pit.py` (never self-reported); **NO_BASELINE** (un-scoreable baseline) AND **AGENT_ERROR** (agent crashed mid-run on an LLM/infra
+error — `agent_rc != 0` — leaving a partial broken file; distinct from a genuine rc=0 BROKE_BUILD where the
+agent finished but left the suite red) are **infra, excluded** from the
 rate, never counted as a skill FAIL. A skill edit is admitted **only if OpenHands' eval pass-rate does not
 regress** vs the pre-edit baseline; on regression the edit is reverted from backup. Gate each verdict on the
 result file MTIME **advancing**, not its existence; never hand-flip a verdict — only a real re-run updates it. **Never set budgets or limits on the agent — this is RLVR.** A model told it has a budget (iteration cap, wall-clock cap, token/turn budget, or any "your turns are limited" prompt) does NOT return a smaller honest result — it **gives up and returns random noise** (NO_GAIN/BROKE_BUILD with 0 tests landed). Limits never trade depth for speed; they trade a real result for garbage. So run iterations, wall-clock, and turns **unbounded**, let the agent finish via its own stop action, and never communicate any budget to it — the goal is to go **as deep as possible** on each target. The ONLY time bound is a high hang-guard (e.g. 24h) to reclaim a genuinely-stuck worker — a safety net, never a work budget, and never surfaced to the model.
