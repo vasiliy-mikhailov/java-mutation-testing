@@ -44,12 +44,16 @@ triggers on "improve mutation coverage / improve the mutation score / strengthen
 `.claude-plugin` manifest — no project-specific scripts. The procedure it encodes: **detect the JDK the project actually needs
 (`detect-java-version`) and run every build/test/PIT command under it** — a too-new JDK crashes PIT's forked
 minion; detect the **build tool** (`pom.xml` → `pitest-maven`, `build.gradle` → `gradle-pitest-plugin`) AND the
-**unit-testing framework**, then take the framework-specific PIT-wiring path: **JUnit 4** → the bare
+**unit-testing framework + version** (via the **`detect-unit-testing-framework`** skill — *resolve the version
+through `${...}`/BOM/`junit.version` property indirection*, confirming with the build's resolved
+`junit-platform-commons` version; a plain `<junit.version>6.x</>` mis-read as JUnit 5 crashes the minion),
+then take the framework-specific PIT-wiring path: **JUnit 4** → the bare
 `mutationCoverage` goal (no plugin); **JUnit 5** → add `pitest-junit5-plugin` to the PIT plugin classpath;
 **JUnit 6** (versioning unified, platform == jupiter version) → a current PIT + `pitest-junit5-plugin` plus a
 `junit-platform-launcher` pinned to the project's platform version so engine and launcher align (otherwise
 the minion dies with `OutputDirectoryCreator not available`); **TestNG** → its own wiring. Inject the PIT
-plugin into the project's main `<build>`, never a `<profile>` build. A minion crash on a too-new JDK =
+plugin into the project's main `<build>`, never a `<profile>` build. A minion crash (`UNKNOWN_ERROR`) is **usually wrong wiring** — most often a **JUnit-6 project mis-detected as
+JUnit 5** (resolve the version, above), not a real instrumentation problem — or, under a too-new JDK,
 test-instrumentation too old → apply Mockito/ByteBuddy floors or `--add-opens`; run PIT scoped to **one** logic-dense,
 already-line-covered class (whole-repo mutation is too expensive); read each survivor (`file:line:mutator`)
 from the PIT report; add tests that make the suite detect it by asserting the **correct** behaviour; re-run PIT scoped to
