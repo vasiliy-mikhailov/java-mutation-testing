@@ -28,6 +28,14 @@ PROMPT = (
     "Finish when the scoped PIT mutation score is higher and all tests are still green."
 )
 
+COMPILE_FIX_PROMPT = (
+    "The test class `{tests}` does NOT COMPILE after the previous edits - so the whole change is about "
+    "to be discarded. Fix ONLY the compilation: correct or DELETE the offending NEW test method(s). Do "
+    "NOT touch production code, do NOT modify or delete pre-existing tests, do NOT weaken anything. Run "
+    "commands via the `jrun <JDK> '<command>'` helper; when `mvn -B -ntp test-compile` succeeds and the "
+    "suite is green, stop.\n\nThe javac errors:\n{errors}"
+)
+
 
 def _install_skill(abs_repo):
     dst = os.path.join(abs_repo, os.path.dirname(SKILL_REL))
@@ -152,6 +160,10 @@ def run_agent(agent, repo_dir, target_class, target_tests, test_file, src_file,
 
     _install_skill(abs_repo)
     ntests_before = _ntests(test_path)
+    try:
+        original_test_text = open(test_path, encoding="utf-8", errors="replace").read()
+    except OSError:
+        original_test_text = None
     log("medium", "panel_start", agent=agent, repo=repo_dir, cls=target_class,
         score_before=round(base["score"], 4), survivors=len(base["survivors"]))
 
@@ -165,6 +177,29 @@ def run_agent(agent, repo_dir, target_class, target_tests, test_file, src_file,
         pass
 
     after = pit.run_pit(repo_dir, target_class, target_tests, jdk=jdk, timeout=900)
+
+    # COMPILE-GATE: a broken APPENDED test must not discard the whole run. If the re-score failed purely
+    # because the test class no longer compiles (rc==0, "COMPILATION ERROR"), give the agent ONE focused
+    # fix-pass with the exact javac errors; if it still will not compile, restore the test file to baseline
+    # so we never emit a compile-broken build (worst case NO_GAIN, never a false BROKE_BUILD losing gains).
+    if (not after["ok"]) and rc == 0 and "COMPILATION ERROR" in (after.get("log_tail", "") or ""):
+        log("medium", "panel_compile_gate", agent=agent, repo=repo_dir, phase="broken")
+        _run_container(agent, abs_repo,
+                       COMPILE_FIX_PROMPT.format(tests=target_tests, errors=after["log_tail"][-3000:]),
+                       timeout)
+        after = pit.run_pit(repo_dir, target_class, target_tests, jdk=jdk, timeout=900)
+        if (not after["ok"]) and "COMPILATION ERROR" in (after.get("log_tail", "") or ""):
+            if original_test_text is not None:
+                try:
+                    with open(test_path, "w", encoding="utf-8") as _tf:
+                        _tf.write(original_test_text)
+                except OSError:
+                    pass
+            after = pit.run_pit(repo_dir, target_class, target_tests, jdk=jdk, timeout=900)
+            log("medium", "panel_compile_gate", agent=agent, repo=repo_dir, phase="reverted")
+        else:
+            log("medium", "panel_compile_gate", agent=agent, repo=repo_dir, phase="fixed")
+
     ntests_after = _ntests(test_path)
     conserved = ntests_after >= ntests_before
 
