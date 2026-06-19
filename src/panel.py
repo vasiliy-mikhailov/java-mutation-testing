@@ -63,9 +63,11 @@ def _spec(agent, abs_repo, prompt, timeout):
     if agent == "openhands":
         slug = os.path.basename(abs_repo.rstrip("/")) + "-" + str(int(time.time()))
         ev_log = str(CORPUS / "dialogs" / (slug + ".jsonl"))
+        persist = str(CORPUS / "dialogs" / (slug + "-tree"))
         os.makedirs(os.path.dirname(ev_log), exist_ok=True)
         envs = ["-e", f"OC_BASE={env('QWEN_BASE_URL')}", "-e", f"OC_MODEL={env('QWEN_MODEL')}",
-                "-e", f"OC_KEY={key}", "-e", "OH_MAX_ITER=100000", "-e", f"OH_EVENT_LOG={ev_log}"]
+                "-e", f"OC_KEY={key}", "-e", "OH_MAX_ITER=100000",
+                "-e", f"OH_EVENT_LOG={ev_log}", "-e", f"OH_PERSIST_DIR={persist}"]
         inner = (f"timeout {timeout} /opt/ohvenv/bin/python "
                  f"{PROJECT}/src/panel_oh_run.py {abs_repo} {q}")
         return "jmt-panel-openhands", envs, inner

@@ -46,6 +46,7 @@ try:
             pass
     conv = Conversation(agent=agent, workspace=LocalWorkspace(working_dir=workdir),
                         max_iteration_per_run=int(os.environ.get("OH_MAX_ITER", "60")),
+                        persistence_dir=(os.environ.get("OH_PERSIST_DIR") or None),
                         callbacks=[_sink])
     conv.send_message(prompt)
     # The Qwen FP8 endpoint occasionally returns malformed JSON ("Extra data ...") that litellm maps to a
