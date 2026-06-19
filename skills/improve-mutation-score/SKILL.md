@@ -138,6 +138,20 @@ loop:
   else                               -> read the still-SURVIVED mutants (§3), add tests (§4), continue
 ```
 
+**Big class? Work ONE METHOD AT A TIME — scope PIT to a single method.** A logic-dense / 2000+-line /
+many-method class generates thousands of mutants; running PIT over the *whole* class repeatedly produces a
+huge report that floods your context and the run dies mid-task (that is how a God-class drowns). Instead:
+**list the methods** of the class (read the source — you do not need a tool), then take them **one by one**.
+For each method, scope PIT to just it by **excluding every other method**:
+```bash
+mvn ... org.pitest:pitest-maven:...:mutationCoverage -DtargetClasses=C -DtargetTests=T -Dmutators=ALL \
+  -DexcludedMethods='methodA,methodB,...,<init>,<clinit>'   # every method EXCEPT the one you are working
+```
+(quote the value so the shell does not treat `<init>`/`<clinit>` as redirects). Now the report is tiny — one
+method’s survivors. Kill them, confirm, move to the next method. This bounds every pass, so you can take an
+arbitrarily large class **as deep as it needs** without ever flooding context. Finish with one whole-class
+run to confirm the overall lift.
+
 **Make the loop cheap so you can be exhaustive:** add **`-DwithHistory=true`** to your iterative PIT
 re-runs. PIT caches results for unchanged production code + tests and only re-evaluates the mutants your
 new tests could affect — often **10-50x faster** per pass, since you only ever *add* tests (the code never
