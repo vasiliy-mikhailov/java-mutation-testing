@@ -14,7 +14,9 @@ import os, sys, traceback, time, json
 workdir, prompt = sys.argv[1], sys.argv[2]
 try:
     from openhands.sdk import LLM, Agent, Conversation, LocalWorkspace
-    from openhands.tools.preset.default import get_default_tools, register_builtins_agents
+    from openhands.tools.preset.default import (get_default_tools, register_builtins_agents,
+        load_agents_from_dir, agent_definition_to_factory, register_agent_if_absent)
+    from pathlib import Path as _Path
     from openhands.sdk.context.condenser import LLMSummarizingCondenser
     from pydantic import SecretStr
 
@@ -27,6 +29,12 @@ try:
     cond = LLM(model=model, base_url=base, api_key=key, usage_id="jmt-cond",
                max_output_tokens=4096, temperature=0.0, native_tool_calling=False, **_R)
     register_builtins_agents(enable_browser=False)  # bash-runner / code-explorer / general-purpose subagents
+    # register custom JMT sub-agent types (mutation-tester) from JMT_HOME/docker/subagents;
+    # register_agent_if_absent will NOT let the builtins overwrite these.
+    _sa_dir = _Path(os.environ.get("JMT_HOME", os.getcwd())) / "docker" / "subagents"
+    if _sa_dir.is_dir():
+        for _ad in load_agents_from_dir(_sa_dir):
+            register_agent_if_absent(_ad.name, agent_definition_to_factory(_ad), _ad)
     agent = Agent(llm=llm, tools=get_default_tools(enable_browser=False, enable_sub_agents=True),
                   condenser=LLMSummarizingCondenser(llm=cond, max_size=40, keep_first=2))
     _EV = os.environ.get("OH_EVENT_LOG")

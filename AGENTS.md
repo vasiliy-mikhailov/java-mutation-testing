@@ -55,16 +55,22 @@ the minion dies with `OutputDirectoryCreator not available`); **TestNG** → add
 plugin into the project's main `<build>`, never a `<profile>` build. A minion crash (`UNKNOWN_ERROR`) is **usually wrong wiring** — most often a **JUnit-6 project mis-detected as
 JUnit 5** (resolve the version, above), not a real instrumentation problem — or, under a too-new JDK,
 test-instrumentation too old → apply Mockito/ByteBuddy floors or `--add-opens`; run PIT scoped to **one** logic-dense,
-already-line-covered class (whole-repo mutation is too expensive). **For a HUGE class (20k+ LOC / many thousands of mutants — real repos have these) the agent works it
-METHOD BY METHOD via SUB-AGENTS.** OpenHands sub-agents are enabled in the panel runner
-(`register_builtins_agents()` + `get_default_tools(enable_sub_agents=True)`); the skill has the agent list
-the methods and **delegate each method (or small group) to a fresh sub-agent** that scopes PIT to that
-method only (`-DexcludedMethods=` the rest incl `<init>`/`<clinit>`, quoted), kills its survivors, and
-returns a summary — so every sub-task has its OWN bounded context and the class scales to any size. This is
-**chunking the work, not capping the model**: mutating the whole God-class in one context drowns the agent
-(45M tokens → cut-off → BROKE_BUILD, as `CollectionUtils` proved). (Harness-side Python method-batching of
-PIT was tried and REVERTED — fragile `<init>`/`<clinit>` shell-mangling, aggregate 85 vs 209; let the AGENT
-chunk, not python.) Never limit the agent; hand it tractable pieces. read each survivor (`file:line:mutator`)
+already-line-covered class (whole-repo mutation is too expensive). **For a HUGE class (20k+ LOC / many thousands of mutants — real repos have these) the work splits into TWO
+ROLES.** OpenHands sub-agents are enabled in the panel runner (`register_builtins_agents()` + a custom
+`mutation-tester` type registered from `docker/subagents/` + `get_default_tools(enable_sub_agents=True)`).
+The **main agent is the TEST-MANAGER**: it lists the methods and delegates each method, ONE AT A TIME
+(sequential — parallel sub-agents collide on the shared test file), to a fresh **`mutation-tester`** sub-agent;
+it never authors tests itself, and when all methods are done it runs one whole-class PIT to confirm the lift
+(the harness commits + opens the PR). Each **`mutation-tester`** scopes PIT to its one method
+(`-DexcludedMethods=` the rest incl `<init>`/`<clinit>`, quoted), reads that method's survivors, APPENDS tests
+that kill them, RUNS them, FIXES any breakage, and returns a short summary — its OWN bounded context, so the
+class scales to any size. The manager MUST delegate to `mutation-tester` (NOT `code-explorer`/`bash-runner`,
+which only analyze — a 2026-06-19 smoke proved that mistake: CollectionUtils ran 2.6h / 7.1M tokens and wrote
+ZERO net tests because every delegation was analysis-only, and the build was left non-compiling with no
+compile-gate). This is **chunking the work, not capping the model**: mutating the whole God-class in one
+context drowns the agent (45M tokens → cut-off → BROKE_BUILD, as `CollectionUtils` first proved). (Harness-side
+Python method-batching of PIT was tried and REVERTED — fragile `<init>`/`<clinit>` shell-mangling, aggregate
+85 vs 209; let the AGENT chunk, not python.) Never limit the agent; hand it tractable pieces. read each survivor (`file:line:mutator`)
 from the PIT report; add tests that make the suite detect it by asserting the **correct** behaviour; re-run PIT scoped to
 confirm the lift; keep the improvement **only if every originally-passing test still passes and no existing assertion
 was weakened** — additions are **append-only**, an existing test is never edited; recognize equivalent mutants
