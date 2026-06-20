@@ -12,6 +12,10 @@ from common import PROJECT, env, log, CORPUS
 
 SKILL_SRC = PROJECT / "skills" / "improve-mutation-score" / "SKILL.md"
 SKILL_REL = ".openhands/skills/improve-mutation-score/SKILL.md"
+# Absolute backstop for an agent run = ~100 years, i.e. effectively NEVER. We do NOT cap the model on
+# wall-clock - that guillotines productive long runs (a God-class legitimately needs many hours). The
+# only real reaper is STALL DETECTION (JMT_STALL_SECS of zero new output) in _run_container.
+AGENT_BACKSTOP = 100 * 365 * 24 * 3600
 TEST_ANNO = re.compile(r"@(Test|ParameterizedTest|RepeatedTest)\b")
 AGENTS = ("openhands", "opencode", "kilocode")
 
@@ -76,7 +80,7 @@ def _spec(agent, abs_repo, prompt, timeout):
         envs = ["-e", f"OC_BASE={env('QWEN_BASE_URL')}", "-e", f"OC_MODEL={env('QWEN_MODEL')}",
                 "-e", f"OC_KEY={key}", "-e", "OH_MAX_ITER=100000",
                 "-e", f"OH_EVENT_LOG={ev_log}", "-e", f"OH_PERSIST_DIR={persist}"]
-        inner = (f"timeout {timeout} /opt/ohvenv/bin/python "
+        inner = (f"timeout {AGENT_BACKSTOP} /opt/ohvenv/bin/python "
                  f"{PROJECT}/src/panel_oh_run.py {abs_repo} {q}")
         return "jmt-panel-openhands", envs, inner, ev_log
     # node agents (opencode / kilocode) share one image + config-copy idiom
@@ -84,7 +88,7 @@ def _spec(agent, abs_repo, prompt, timeout):
     cfg, cli = ("opencode", "opencode") if agent == "opencode" else ("kilo", "kilo")
     inner = (f"export HOME=/root; mkdir -p /root/.config/{cfg}; "
              f"cp /cfg/{cfg if agent=='opencode' else 'kilo'}.json /root/.config/{cfg}/opencode.json; "
-             f"cd {abs_repo}; timeout {timeout} {cli} run -m qwen/qwen-3.6-27b-fp8 {q}")
+             f"cd {abs_repo}; timeout {AGENT_BACKSTOP} {cli} run -m qwen/qwen-3.6-27b-fp8 {q}")
     return "jmt-panel-node", envs, inner, None
 
 
@@ -99,7 +103,7 @@ def _run_container(agent, abs_repo, prompt, timeout):
     # Hang guard = STALL DETECTION, not a wall-clock cap. A productive run is never cut; only a stuck
     # one is reaped. Watch the freshest of {OH dialog log, container stdout} mtime - while the agent
     # emits events the files keep growing. Kill only after STALL secs of zero progress. The inner
-    # `timeout {timeout}` plus the absolute +180 line below remain a high backstop.
+    # The inner `timeout {AGENT_BACKSTOP}` plus the hard line below are a ~100y formality, never a real cap.
     STALL = int(env("JMT_STALL_SECS", "2400"))   # 40 min with no new output = stuck
     out_path = f"/tmp/{name}.log"
     killed = None
@@ -118,7 +122,7 @@ def _run_container(agent, abs_repo, prompt, timeout):
             idle = now - max(refs)
             if idle > STALL:
                 killed = "stall"
-            elif now - start > timeout + 180:
+            elif now - start > AGENT_BACKSTOP:
                 killed = "hard"
             if killed:
                 subprocess.run(["docker", "rm", "-f", name],
