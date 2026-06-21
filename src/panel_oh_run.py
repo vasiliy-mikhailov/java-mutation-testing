@@ -11,6 +11,26 @@ temperature=0.0, native tool calls; condenser tools off, 4096.
 """
 import os, sys, traceback, time, json
 
+# --- TCP keepalive on ALL sockets (whitebox philosophy: anomaly->investigate->fix, NOT timeout->kill).
+# A SLOW inference response still waits (1y request timeout). A DEAD connection (peer/proxy gone) is
+# detected by keepalive probes - idle 60s, then every 15s x4 (~120s) -> read error -> num_retries reconnects.
+import socket as _socket
+_KA = (int(os.environ.get('JMT_TCP_KEEPIDLE', '60')),
+       int(os.environ.get('JMT_TCP_KEEPINTVL', '15')),
+       int(os.environ.get('JMT_TCP_KEEPCNT', '4')))
+_OrigSocket = _socket.socket
+class _KeepAliveSocket(_OrigSocket):
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        try:
+            self.setsockopt(_socket.SOL_SOCKET, _socket.SO_KEEPALIVE, 1)
+            self.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_KEEPIDLE, _KA[0])
+            self.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_KEEPINTVL, _KA[1])
+            self.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_KEEPCNT, _KA[2])
+        except (OSError, AttributeError):
+            pass
+_socket.socket = _KeepAliveSocket
+
 workdir, prompt = sys.argv[1], sys.argv[2]
 try:
     from openhands.sdk import LLM, Agent, Conversation, LocalWorkspace
