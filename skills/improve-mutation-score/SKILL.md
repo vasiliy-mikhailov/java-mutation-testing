@@ -44,7 +44,7 @@ Let `C` = fully-qualified class, `T` = its test class or package glob.
 **Mutate with the FULL operator set — `-Dmutators=ALL`** on every `mutationCoverage` invocation
 (Gradle: `mutators = ['ALL']`). `ALL` surfaces mutation kinds `DEFAULTS` can't — removed conditionals,
 member-variable writes, switches, extra return/boundary variants — and **each surviving kind is a distinct
-test idea**. Expect *more* survivors at the start and *more* equivalents (§6), but a richer set of real
+test idea**. Expect *more* survivors at the start and *more* equivalents (§7), but a richer set of real
 weaknesses to fix, so more mutants ultimately killed. (Pair with `-DwithHistory=true`, §5, to keep the
 bigger mutant set fast to re-run.)
 **Maven, JUnit 4** — invoke PIT as a one-off goal, no `pom.xml` change needed:
@@ -134,7 +134,9 @@ loop:
   re-run the scoped PIT from §2          # produces a fresh mutations.xml
   reward = survived_prev - survived_now  # +1 for each survivor this pass removes
   if PIT is red (a new test failed)  -> fix or drop that test; never leave the suite red
-  if reward == 0 on this pass        -> STOP (no survivors removed — only equivalent/untestable remain, §6)
+  if reward == 0 on this pass        -> run the §6 mergeability checker; if its reward < 1.0, fix the
+                                        broken rules (without losing a kill) and continue; else STOP
+                                        (only equivalent/untestable survivors remain, §7)
   else                               -> read the still-SURVIVED mutants (§3), add tests (§4), continue
 ```
 
@@ -175,7 +177,40 @@ test, then compile again. Loop until it compiles. You are *not* finished until t
 **green** and the score **rose**; stopping on an unverified or non-compiling edit gets the whole run
 discarded as BROKE_BUILD.
 
-## 6. Equivalent mutants are RARE — earn the right to skip one
+## 6. Mergeability reward — a green test a maintainer won't merge scores nothing
+Mutation score makes a test **strong**; it does not make it **mergeable**. Maintainers reject tests that
+reach into internals, assert nothing, or flake — so "avoid that wart" is empty advice unless breaking it
+**costs reward**. Score every test file you touch with the bundled checker (pure stdlib — runs anywhere):
+
+```
+python skills/improve-mutation-score/reward.py <TestFile> \
+    --baseline <upstream copy of the file> --green true --mut-before <N> --mut-after <M>
+```
+
+**reward = 0.9 ^ (number of broken rules)** — `1.0` means nothing broken; each broken rule costs a 0.9
+factor (2 broken → 0.81, 5 broken → 0.59). The rules:
+
+| # | rule | broken when |
+|---|---|---|
+| 1 | api-only | reaches internals via reflection (`setAccessible`, `getDeclaredField`, `ReflectionTestUtils`, `Whitebox`) — drive the public API instead |
+| 2 | every-test-asserts | a `@Test` exercises code but asserts nothing (coverage theater) |
+| 3 | no-vacuous-assert | `assertTrue(true)`, `assertEquals(x, x)`, `assertNotNull("literal")` |
+| 4 | no-adnt-only | a `@Test` whose only check is `assertDoesNotThrow` / try-catch-`fail` — assert the real result |
+| 5 | deterministic | `Thread.sleep`, unseeded `new Random()`, wall-clock, real network / file IO |
+| 6 | no-disabled | adds `@Disabled` / `@Ignore` |
+| 7 | additive-only | removes or edits any existing line (see §4) |
+| 8 | green | a test does not compile or fails |
+| 9 | mutation-improving | mutant kills did not strictly rise vs the baseline |
+
+**This is part of the §5 loop, not a final gate.** Each pass, once PIT is green, run the checker and treat
+every FAILED rule as more work. Fix each broken rule **without losing a kill** — rewrite the offending test
+so it *still* fails on the mutant but now goes through the public API / asserts the real value / is
+deterministic. **Never delete a test or weaken an assertion just to clear a rule.** If a rule genuinely
+cannot be satisfied without dropping a mutant kill, keep the kill and record the residual in the PR. **Do
+not stop at "tests are green" — stop at reward `1.0`** (or a documented residual you cannot remove without
+losing mutation coverage).
+
+## 7. Equivalent mutants are RARE — earn the right to skip one
 A truly **equivalent** mutant (semantically identical behaviour — no test can detect it: a branch with no
 observable effect, a redundant boundary on an unreachable value, reordered commutative ops) is the *rare*
 exception, not the explanation for a stuck survivor. **Most survivors are killable** — they just need the
@@ -187,10 +222,12 @@ differentiating attempt fails do you set it aside — and say so. Do **not** end
 the **lowest survivor count you can reach**, not the first plateau. 100% is rare, but get as close as the
 non-equivalent survivors allow.
 
-## 7. Open a PR
-Branch, commit the **append-only** test additions (plus the PIT build config if added for JUnit 5),
-and open a PR whose body reports the **mutation score AND line coverage before → after**, the additional mutants now
-detected, and that the additions are append-only and green.
+## 8. Open a PR
+Open a PR only once the §6 mergeability **reward is 1.0** (or the only residual is a rule you documented as
+unremovable without losing a kill). Branch, commit the **append-only** test additions (plus the PIT build
+config if added for JUnit 5), and open a PR whose body reports the **mutation score AND line coverage
+before → after**, the additional mutants now detected, and that the additions are append-only, green, and
+clear the mergeability rules.
 
 ---
 
