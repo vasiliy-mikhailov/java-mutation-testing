@@ -71,7 +71,7 @@ def _error_excerpt(log_tail):
     keep = [ln for ln in log_tail.splitlines()
             if re.search(r"\[ERROR\]|BUILD FAILURE|did not pass|cannot find symbol|"
                          r"\bexpected:|\bbut was:|AssertionError|\.java:\[?\d", ln)]
-    return "\n".join(keep[-25:]) if keep else log_tail[-1200:]
+    return "\n".join(keep) if keep else log_tail
 
 
 def _apply(test_src, imports, methods):
@@ -88,10 +88,10 @@ def _apply(test_src, imports, methods):
 
 
 def _gen(src_txt, test_txt, target_class, src_name, test_name, survivors, prev=None, error=None):
-    feedback = FEEDBACK.format(error=error[:1500], prev=prev[:1500]) if (prev and error) else ""
+    feedback = FEEDBACK.format(error=error, prev=prev) if (prev and error) else ""
     prompt = PROMPT.format(cls=target_class, src_name=src_name, src=src_txt,
                            test_name=test_name, tests=test_txt,
-                           survivors=_fmt_survivors(survivors[:10]), feedback=feedback)
+                           survivors=_fmt_survivors(survivors), feedback=feedback)
     resp = llm.complete([{"role": "system", "content": SYS},
                          {"role": "user", "content": prompt}], max_tokens=GEN_TOKENS)
     obj = llm.extract_json(resp)
@@ -109,7 +109,7 @@ def improve(repo, target_class, target_tests, test_file, src_file,
     if not base["ok"]:
         log("medium", "baseline_fail", repo=repo, cls=target_class, rc=base["rc"])
         return {"repo": repo, "class": target_class, "error": "baseline_pit_failed",
-                "log_tail": base["log_tail"][-1500:]}
+                "log_tail": base["log_tail"]}
 
     score_before, survivors, killed_now = base["score"], base["survivors"], base["killed"]
     src_txt = _read(src_path)

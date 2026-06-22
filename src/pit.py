@@ -209,7 +209,7 @@ def run_pit(repo, target_class, target_tests, jdk=21, timeout=31_536_000,
     rc, out = _sandbox.run(cmd, repo, jdk=jdk, timeout=timeout)
     report = os.path.join(pom_dir, "target", "pit-reports", "mutations.xml")
     result = {"rc": rc, "report": report, "ok": False, "junit5": j5, "module": module,
-              "log_tail": out[-3000:]}
+              "log_tail": out}  # P2: full output, never a tail (the compile-gate scans this for COMPILATION ERROR)
     cm = _re.search(r"Line Coverage[^:]*:\s*(\d+)\s*/\s*(\d+)", out)
     if cm:
         cn, cd = int(cm.group(1)), int(cm.group(2))

@@ -189,7 +189,7 @@ def run_agent(agent, repo_dir, target_class, target_tests, test_file, src_file,
     if (not after["ok"]) and rc == 0 and "COMPILATION ERROR" in (after.get("log_tail", "") or ""):
         log("medium", "panel_compile_gate", agent=agent, repo=repo_dir, phase="broken")
         _run_container(agent, abs_repo,
-                       COMPILE_FIX_PROMPT.format(tests=target_tests, errors=after["log_tail"][-3000:]),
+                       COMPILE_FIX_PROMPT.format(tests=target_tests, errors=after["log_tail"]),
                        timeout)
         after = pit.run_pit(repo_dir, target_class, target_tests, jdk=jdk, timeout=31_536_000)
         if (not after["ok"]) and "COMPILATION ERROR" in (after.get("log_tail", "") or ""):
@@ -234,7 +234,7 @@ def run_agent(agent, repo_dir, target_class, target_tests, test_file, src_file,
         "line_cov_before": base.get("line_cov"),
         "line_cov_after": after.get("line_cov") if after["ok"] else None,
         "lines_total": base.get("line_total"),
-        "ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "log_tail": out[-1500:],
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "log_tail": out,
     }
     if open_pr and verdict in ("PASS", "PASS_BUT_NOT_CONSERVED"):
         try:

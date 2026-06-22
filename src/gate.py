@@ -110,7 +110,7 @@ def gate(repo, jdk=21, min_tests=20, run_green=True, probe_pit=True, timeout=31_
                           repo_dir, jdk=jdk, timeout=timeout)
     if rc != 0:
         log("medium", "gate_reject", repo=repo, reason="compile", rc=rc)
-        return {**rec, "admitted": False, "reason": "compile_fail", "log_tail": out[-800:]}
+        return {**rec, "admitted": False, "reason": "compile_fail", "log_tail": out}
 
     n_tests, _ = count_tests(repo_dir)
     if n_tests < min_tests:
@@ -120,7 +120,7 @@ def gate(repo, jdk=21, min_tests=20, run_green=True, probe_pit=True, timeout=31_
         rc, out = sandbox.run("mvn -B -q -s /sandbox-settings.xml test", repo_dir, jdk=jdk, timeout=timeout)
         if rc != 0:
             log("medium", "gate_reject", repo=repo, reason="green", rc=rc)
-            return {**rec, "admitted": False, "reason": "tests_red", "log_tail": out[-800:]}
+            return {**rec, "admitted": False, "reason": "tests_red", "log_tail": out}
 
     cands = candidate_classes(repo_dir)
     if not cands:
