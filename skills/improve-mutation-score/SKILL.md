@@ -203,6 +203,7 @@ reward, a 15-line dead method (0.9^15 ≈ 0.21) tanks it. The rules:
 | 8 | additive-only | removes or edits any existing line (see §4) |
 | 9 | green | a test does not compile or fails |
 | 10 | mutation-improving | mutant kills did not strictly rise vs the baseline |
+| 11 | no-partial-assert | validates one string **piecemeal** — ≥2 substring checks (`assertTrue(url.contains("&p=v"))`) on the same variable; assert the full value with `assertEquals` instead |
 
 **This is part of the §5 loop, not a final gate.** Each pass, once PIT is green, run the checker and treat
 every FAILED rule as more work. Fix each broken rule **without losing a kill** — rewrite the offending test

@@ -24,6 +24,7 @@ Static rules (from the file alone):
 Dynamic rules (need build inputs):
   9 green              (needs --green true|false) all tests compile and pass
  10 mutation-improving (needs --mut-before N --mut-after M) kills strictly increased
+ 11 no-partial-assert  no @Test that validates a string via substring match (assert the full value)
 
 Rules with missing inputs are reported n/a and excluded from the count.
 """
@@ -88,6 +89,13 @@ VACUOUS = re.compile(r'assertTrue\s*\(\s*true\s*\)|assertFalse\s*\(\s*false\s*\)
 FLAKY = re.compile(r'Thread\.sleep|new\s+Random\s*\(\s*\)|System\.currentTimeMillis|System\.nanoTime'
                    r'|new\s+Date\s*\(\s*\)|InetAddress|new\s+Socket|\.openConnection\s*\(|new\s+URL\s*\(')
 DISABLED = re.compile(r'@Disabled\b|@Ignore\b')
+# weak substring assertion on a STRING LITERAL (url.contains("..."), startsWith, Hamcrest containsString,
+# indexOf>=0). A substring check kills fewer mutants than a full assertEquals on the whole value (a mutant
+# that reorders/alters a DIFFERENT part survives), so it is flagged even when the test asserts other values.
+# The string-literal arg keeps collection-membership tests (list.contains(var)) out.
+PARTIAL = re.compile(r'assert(?:True|False)\s*\(\s*[\w.()]+\.(?:contains|startsWith|endsWith|matches)\s*\(\s*"'
+                     r'|\bcontainsString\s*\(\s*"'
+                     r'|assert(?:True|False)\s*\(\s*[\w.()]+\.indexOf\s*\(\s*"[^"]*"\s*\)\s*(?:>=\s*0|!=\s*-?\s*1|>\s*-\s*1)')
 
 def non_adnt_assert(body):
     # an assertion that is not assertDoesNotThrow
@@ -196,6 +204,16 @@ def evaluate(path, baseline_path, green, mut_before, mut_after):
     else:
         add("10", "mutation-improving", not (mut_after > mut_before),
             f"kills {mut_before} -> {mut_after} (no gain)")
+
+    # a @Test that validates ONE string PIECEMEAL: >=2 substring checks on the SAME variable
+    # (e.g. 6x assertTrue(url.contains("&p=v")) -> should be one assertEquals on the full url).
+    # A single presence check (assertThat(out, containsString("<?xml"))) is legit and NOT flagged.
+    def piecemeal(b):
+        vs = (re.findall(r'assert(?:True|False)\s*\(\s*([\w.()]+)\.(?:contains|startsWith|endsWith|matches)\s*\(\s*"', b)
+              + re.findall(r'assertThat\s*\(\s*([\w.()]+)\s*,\s*containsString\s*\(\s*"', b))
+        return any(vs.count(v) >= 2 for v in set(vs))
+    partial = [n for n, b, a in methods if piecemeal(b)]
+    add("11", "no-partial-assert", bool(partial), f"piecemeal substring validation (assert full value): {partial}")
 
     broken = [r for r in rules if r[2] == "fail"]
     evaluated = [r for r in rules if r[2] != "na"]
