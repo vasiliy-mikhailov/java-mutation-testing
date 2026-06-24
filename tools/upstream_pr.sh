@@ -1,22 +1,23 @@
 #!/bin/bash
-# upstream_pr.sh UP MIR PR CLS -- offer one JMT characterization test upstream as a PR.
-# Forks UP, pulls the test from the jmt-<repo> mirror PR, applies, build-verifies in
-# java-<jdk>-mutation-testing-sandbox (deepest-pom module detect, clean-append + real
-# Tests-run gates, buildnumber/gpg substrate-skips); opens PR under owner name only on green.
+# upstream_pr.sh UP CLS -- offer one JMT characterization test upstream as a PR.
+# Reads the generated test from the LOCAL store (JMT_GENERATED/<name>/, written by pr.py — no
+# more jmt-* GitHub mirrors), applies it to a fork of UP, build-verifies in
+# java-<jdk>-mutation-testing-sandbox (deepest-pom module detect, clean-append + real Tests-run
+# gates, buildnumber/gpg substrate-skips); opens PR under owner name (always -s) only on green.
 # P9 value experiment (see memory upstream-pr-campaign).
-# one.sh UP MIR PR CLS
-UP=$1; MIR=$2; PR=$3; CLS=$4
+UP=$1; CLS=$2
 SX=/home/vmihaylov/java-mutation-testing/current_attempt/docker/sandbox-settings.xml
+GEN="${JMT_GENERATED:-/home/vmihaylov/jmt-generated}/$(basename "$UP")"
 slug=$(echo "$UP" | tr '/' '-'); D=/tmp/pr-$slug
 SKIP="-Dmaven.buildNumber.skip=true -Dgpg.skip=true"
 echo "================ $UP ($CLS) ================"
 timeout 90 gh repo fork "$UP" --clone=false >/dev/null 2>&1; sleep 3
 rm -rf "$D"
 timeout 150 gh repo clone "vasiliy-mikhailov/$(basename "$UP")" "$D" -- --depth 1 -q 2>/dev/null || { echo "RESULT $UP SKIP clone-fail"; exit 0; }
-br=$(timeout 30 gh pr view "$PR" --repo "vasiliy-mikhailov/$MIR" --json headRefName -q .headRefName 2>/dev/null)
-tf=$(timeout 30 gh pr diff "$PR" --repo "vasiliy-mikhailov/$MIR" 2>/dev/null | grep -m1 "^+++ b/.*${CLS}.*\.java" | sed 's|^+++ b/||')
-[ -z "$tf" ] && { echo "RESULT $UP SKIP no-test-path"; exit 0; }
-timeout 30 gh api "repos/vasiliy-mikhailov/$MIR/contents/$tf?ref=$br" --jq .content 2>/dev/null | base64 -d > /tmp/mt.java
+# locate the generated test for CLS in the local store (repo-relative path preserved on export)
+tf=$(cd "$GEN" 2>/dev/null && { find . -path "*${CLS}Test.java" -o -path "*${CLS}*Test.java"; } 2>/dev/null | head -1 | sed 's|^\./||')
+[ -z "$tf" ] && { echo "RESULT $UP SKIP no-local-test (looked in $GEN)"; exit 0; }
+cp "$GEN/$tf" /tmp/mt.java
 [ ! -s /tmp/mt.java ] && { echo "RESULT $UP SKIP empty-test"; exit 0; }
 if [ -f "$D/$tf" ]; then removed=$(diff "$D/$tf" /tmp/mt.java 2>/dev/null | grep -cE '^<'); else removed=0; fi
 nt=$(grep -c '@Test' /tmp/mt.java); cp /tmp/mt.java "$D/$tf"
