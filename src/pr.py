@@ -10,6 +10,7 @@ mode="upstream": fork upstream to the authed user and open the PR against upstre
 Commits ONLY the changed test file (never build artifacts). gh provides auth.
 """
 import subprocess, time, json, os, shutil
+import reward_polish
 import sandbox
 from common import log
 
@@ -28,6 +29,9 @@ def _persist_local(abs_repo, name, result, test_files, agent=None):
         src = os.path.join(abs_repo, tf)
         if not os.path.exists(src):
             continue
+        fixes = reward_polish.polish(src)  # mechanical 0.9->1.0 fixes (seed Random, drop unused imports)
+        if fixes:
+            log("medium", "reward_polish", cls=result.get("class"), file=tf, fixes=fixes)
         dest = os.path.join(out, tf)
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         shutil.copyfile(src, dest)
