@@ -3,15 +3,42 @@
 Significant = killed gain >= MIN_KILLED and score gain >= MIN_GAIN. The PR is append-only test
 additions; the body states the mutation score AND line coverage before->after and the mutants killed.
 
-mode="private" (default): mirror the repo into a PRIVATE repo <login>/jmt-<name>, push the
-  unmodified base as `main` and the improved branch, open the PR WITHIN that private repo so the
-  operator can review it safely. Nothing reaches upstream.
+mode="private" (default): persist the strengthened test file(s) to a LOCAL store
+  (GENERATED/<name>/) + a meta.json — NO GitHub repo is created (the operator dislikes per-repo
+  jmt-* mirror repos). The upstream PR pipeline reads the generated tests from there.
 mode="upstream": fork upstream to the authed user and open the PR against upstream.
 Commits ONLY the changed test file (never build artifacts). gh provides auth.
 """
-import subprocess, time, json
+import subprocess, time, json, os, shutil
 import sandbox
 from common import log
+
+# The operator dislikes per-repo jmt-* mirror repos cluttering GitHub. Instead of mirroring a PASS
+# into <login>/jmt-<name> and opening a PR there, persist the strengthened test file(s) to a local
+# store; the upstream PR pipeline reads the generated tests from here.
+GENERATED = os.environ.get("JMT_GENERATED", "/home/vmihaylov/jmt-generated")
+
+
+def _persist_local(abs_repo, name, result, test_files, agent=None):
+    """Copy the strengthened test file(s) to GENERATED/<name>/<repo-relative-path> + a meta.json.
+    Returns (saved_paths, out_dir). Replaces the GitHub mirror entirely."""
+    out = os.path.join(GENERATED, name)
+    saved = []
+    for tf in test_files:
+        src = os.path.join(abs_repo, tf)
+        if not os.path.exists(src):
+            continue
+        dest = os.path.join(out, tf)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        shutil.copyfile(src, dest)
+        saved.append(tf)
+    os.makedirs(out, exist_ok=True)
+    meta = {"upstream_name": name, "class": result.get("class"), "agent": agent,
+            "score_before": result.get("score_before"), "score_after": result.get("score_after"),
+            "killed_before": result.get("killed_before"), "killed_after": result.get("killed_after"),
+            "test_files": saved, "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    json.dump(meta, open(os.path.join(out, "meta.json"), "w"), indent=2)
+    return saved, out
 
 MIN_KILLED = 2
 MIN_GAIN = 0.02
@@ -63,16 +90,6 @@ def _body(r):
     return "\n".join(lines)
 
 
-def _ensure_private_mirror(login, name):
-    mirror = f"{login}/jmt-{name}"
-    if subprocess.run(["gh", "repo", "view", mirror],
-                      capture_output=True, text=True).returncode != 0:
-        _sh(["gh", "repo", "create", mirror, "--private",
-             "--description", f"Private mutation-testing mirror of {name}"])
-        log("medium", "mirror_created", mirror=mirror)
-    return mirror
-
-
 def open_for_result(repo_full, repo_dir, result, mode="private",
                     min_killed=MIN_KILLED, min_gain=MIN_GAIN):
     if not is_significant(result, min_killed, min_gain):
@@ -107,18 +124,9 @@ def open_for_result(repo_full, repo_dir, result, mode="private",
              f"PIT mutants in {cls_simple} ({result['score_before']:.0%}->{result['score_after']:.0%})")
 
     if mode == "private":
-        mirror = _ensure_private_mirror(login, name)
-        subprocess.run(["git", "-C", abs_repo, "fetch", "--unshallow"], capture_output=True, text=True)  # need full history to push to a fresh repo
-        url_remote = f"https://github.com/{mirror}.git"
-        subprocess.run(["git", "-C", abs_repo, "remote", "remove", "mine"],
-                       capture_output=True, text=True)
-        _sh(["git", "-C", abs_repo, "remote", "add", "mine", url_remote])
-        _sh(["git", "-C", abs_repo, "push", "mine", f"{base_sha}:refs/heads/main", "--force"])
-        _sh(["git", "-C", abs_repo, "push", "mine", branch, "--force"])
-        url = _sh(["gh", "pr", "create", "--repo", mirror, "--base", "main",
-                   "--head", branch, "--title", title, "--body", _body(result)])
-        log("slow", "pr_opened", mode="private", mirror=mirror, cls=result["class"], url=url)
-        return {"opened": True, "mode": "private", "mirror": mirror, "url": url, "branch": branch}
+        saved, out = _persist_local(abs_repo, name, result, [test_file])
+        log("slow", "pr_persisted", mode="local", path=out, cls=result["class"], files=len(saved))
+        return {"opened": True, "mode": "local", "path": out, "test_files": saved, "branch": branch}
 
     # mode == "upstream"
     subprocess.run(["gh", "repo", "fork", repo_full, "--clone=false"], capture_output=True, text=True)
@@ -178,23 +186,6 @@ def open_panel_pr(repo_dir, result, agent, min_killed=1):
            f"Append-only PIT-guided tests via the improve-mutation-score skill.\n\n"
            f"Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>")
     _sh(["git", "-C", abs_repo, "commit", "-m", msg])
-    mirror = _ensure_private_mirror(login, name)
-    subprocess.run(["git", "-C", abs_repo, "fetch", "--unshallow"], capture_output=True, text=True)
-    subprocess.run(["git", "-C", abs_repo, "remote", "remove", "mine"], capture_output=True, text=True)
-    _sh(["git", "-C", abs_repo, "remote", "add", "mine", f"https://github.com/{mirror}.git"])
-    _sh(["git", "-C", abs_repo, "push", "mine", f"{base_sha}:refs/heads/main", "--force"])
-    _sh(["git", "-C", abs_repo, "push", "mine", branch, "--force"])
-    body = (f"## {agent}: killed {delta} surviving mutants in `{result['class']}`\n\n"
-            f"| metric | before | after |\n|---|---|---|\n"
-            f"| mutation score | {result['score_before']:.1%} | **{result['score_after']:.1%}** |\n"
-            f"| mutants killed | {kb}/{result['total']} | **{ka}/{result['total']}** |\n"
-            f"| test methods | {result.get('tests_before')} | {result.get('tests_after')} |\n\n"
-            f"Append-only PIT-guided tests, agent **{agent}**, verdict `{result['verdict']}`. "
-            f"Diff is test-only (scoring scaffolding excluded).\n\n"
-            f"\U0001F916 Generated with [Claude Code](https://claude.com/claude-code)")
-    title = (f"[{agent}] kill {delta} PIT mutants in {cls} "
-             f"({result['score_before']:.0%}->{result['score_after']:.0%})")
-    url = _sh(["gh", "pr", "create", "--repo", mirror, "--base", "main", "--head", branch,
-               "--title", title, "--body", body])
-    log("slow", "panel_pr", agent=agent, mirror=mirror, cls=result["class"], url=url)
-    return {"opened": True, "mirror": mirror, "url": url, "branch": branch}
+    saved, out = _persist_local(abs_repo, name, result, test_files, agent=agent)
+    log("slow", "panel_pr", mode="local", agent=agent, path=out, cls=result["class"], files=len(saved))
+    return {"opened": True, "mode": "local", "path": out, "test_files": saved, "branch": branch}
