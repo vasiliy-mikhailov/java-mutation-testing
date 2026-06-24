@@ -41,7 +41,7 @@ EOF
 cd "$D" || exit 0
 git checkout -q -b "add-${CLS}-tests"
 git add "$tf"
-git -c user.name=vasiliy-mikhailov -c user.email=vasiliy-mikhailov@users.noreply.github.com commit -q -m "Add unit tests for $CLS
+git -c user.name=vasiliy-mikhailov -c user.email=vasiliy-mikhailov@users.noreply.github.com commit -q -s -m "Add unit tests for $CLS
 
 Additive unit tests only - no existing test or production code changed."
 gh auth setup-git >/dev/null 2>&1
