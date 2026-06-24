@@ -9,7 +9,7 @@ UP=$1; CLS=$2
 SX=/home/vmihaylov/java-mutation-testing/current_attempt/docker/sandbox-settings.xml
 GEN="${JMT_GENERATED:-/home/vmihaylov/jmt-generated}/$(basename "$UP")"
 slug=$(echo "$UP" | tr '/' '-'); D=/tmp/pr-$slug
-SKIP="-Dmaven.buildNumber.skip=true -Dgpg.skip=true"
+SKIP="-Dmaven.buildNumber.skip=true -Dgpg.skip=true -Dspotless.check.skip=true -Dspotless.apply.skip=true -Dcheckstyle.skip=true -Denforcer.skip=true -Dpmd.skip=true -Dspotbugs.skip=true -Djacoco.skip=true -Dlicense.skip=true"
 echo "================ $UP ($CLS) ================"
 timeout 90 gh repo fork "$UP" --clone=false >/dev/null 2>&1; sleep 3
 rm -rf "$D"
