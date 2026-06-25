@@ -64,7 +64,7 @@ def _run_one(t, open_pr):
 
 
 def main(cycle_sleep=600, pool=500):
-    log("slow", "improve_start", mode="perpetual_passed_first", workers=IMPROVE_WORKERS, pool=pool)
+    log("slow", "improve_start", mode="perpetual_fresh_first", workers=IMPROVE_WORKERS, pool=pool)
     cycle = 0
     with ThreadPoolExecutor(max_workers=IMPROVE_WORKERS) as ex:
         while True:
@@ -75,11 +75,15 @@ def main(cycle_sleep=600, pool=500):
                 time.sleep(cycle_sleep)
                 continue
             passed, has_pr = _verdicts()
-            front = [t for t in cands if t["target_class"] in passed]      # already passed -> front
-            rest  = [t for t in cands if t["target_class"] not in passed]
-            queue = front + rest
+            # spend lanes on NEW classes, not churn. Skip classes already CAPTURED to the local store
+            # (shipped/stored — re-running them just re-persists the same result and wastes lanes), and
+            # run never-passed (truly new) classes FIRST so fresh candidates actually surface.
+            uncaptured = [t for t in cands if t["target_class"] not in has_pr]
+            fresh = [t for t in uncaptured if t["target_class"] not in passed]
+            retry = [t for t in uncaptured if t["target_class"] in passed]
+            queue = fresh + retry
             log("slow", "improve_cycle", cycle=cycle, total=len(queue),
-                passed_first=len(front), workers=IMPROVE_WORKERS)
+                fresh=len(fresh), retry=len(retry), workers=IMPROVE_WORKERS)
             futs = [ex.submit(_run_one, t, t["target_class"] not in has_pr) for t in queue]
             for _ in as_completed(futs):
                 pass
