@@ -180,20 +180,19 @@ discarded as BROKE_BUILD.
 ## 6. Mergeability reward — a green test a maintainer won't merge scores nothing
 Mutation score makes a test **strong**; it does not make it **mergeable**. Maintainers reject tests that
 reach into internals, assert nothing, or flake — so "avoid that wart" is empty advice unless breaking it
-**costs reward**. Score every test file you touch with the bundled checker (pure stdlib — runs anywhere):
-
-```
-python skills/improve-mutation-score/reward.py <TestFile> \
-    --baseline <upstream copy of the file> --green true --mut-before <N> --mut-after <M>
-```
+**costs reward**. **Score every test file you touch by your own judgment — no tooling required.** This
+skill ships as a pure rubric: the environment running it may have no Python, no install step, nothing but
+you and the file, so *you* are the judge. Read the test diff **you added** (compare against the upstream
+copy of the file so pre-existing code is never counted), and for each rule below count the **lines of your
+added test code** that violate it.
 
 **reward = 0.9 ^ (penalty)** — `1.0` means nothing broken; **penalty = the total number of LINES of bad
 test code**, summed across every quality rule. A rule's penalty is how many lines of *added* test code
 violate it (an offending `@Test` counts its full method body; a per-line wart counts its matching lines), so
 a one-line slip barely dents the reward while a 15-line warty method (0.9^15 ≈ 0.21) tanks it. The two
 build-outcome rules — **green (9)** and **mutation-improving (10)** — are not line-countable, so they stay
-binary (1 penalty) and act as prerequisites the PR gate requires anyway. Penalties count only the lines
-**you added** (scoped by `--baseline`), never pre-existing upstream code. The rules:
+binary (1 penalty) and act as prerequisites the PR gate requires anyway. Count only the lines **you added**
+against the upstream baseline, never pre-existing upstream code. The rules:
 
 | # | rule | broken when (penalty = offending lines) |
 |---|---|---|
@@ -212,13 +211,21 @@ binary (1 penalty) and act as prerequisites the PR gate requires anyway. Penalti
 | 13 | no-inner-class | declares a nested / `@Nested` / helper class inside the test — keep tests flat; lift fixtures to the public API or a top-level test helper |
 | 14 | no-comment-spam | standalone comment lines out-pace code more than **1 per 4 code lines** — comment *why*, not *what*; the assertions are the documentation. Trailing `// why` on a code line is fine (it's a code line, not a comment line); penalty = comment lines over the 1:4 budget |
 
-**This is part of the §5 loop, not a final gate.** Each pass, once PIT is green, run the checker and treat
-every FAILED rule as more work. Fix each broken rule **without losing a kill** — rewrite the offending test
-so it *still* fails on the mutant but now goes through the public API / asserts the real value / is
-deterministic. **Never delete a test or weaken an assertion just to clear a rule.** If a rule genuinely
-cannot be satisfied without dropping a mutant kill, keep the kill and record the residual in the PR. **Do
-not stop at "tests are green" — stop at reward `1.0`** (or a documented residual you cannot remove without
-losing mutation coverage).
+**This is part of the §5 loop, not a final gate.** Each pass, once PIT is green, re-judge the test against
+the rubric and treat every FAILED rule as more work. Fix each broken rule **without losing a kill** —
+rewrite the offending test so it *still* fails on the mutant but now goes through the public API / asserts
+the real value / is deterministic. **Never delete a test or weaken an assertion just to clear a rule.** If a
+rule genuinely cannot be satisfied without dropping a mutant kill, keep the kill and record the residual in
+the PR. **Do not stop at "tests are green" — stop at reward `1.0`** (or a documented residual you cannot
+remove without losing mutation coverage).
+
+> **Contract — no runtime dependency.** This skill is just `SKILL.md`: the reward above is computed by your
+> own line-counted judgment against the rubric, so it works in any environment (opencode, kilocode, CI, a
+> bare editor) with **no Python and no install**. A folder copy of `reward.py` may sit alongside as an
+> *optional* offline oracle that applies these exact rules mechanically (`python reward.py <TestFile>
+> --baseline <upstream copy> --green true --mut-before N --mut-after M`) — handy for a cross-check when
+> Python happens to be present, but it is **never required**. The rubric is the contract; you must be able
+> to score without it.
 
 ## 7. Equivalent mutants are RARE — earn the right to skip one
 A truly **equivalent** mutant (semantically identical behaviour — no test can detect it: a branch with no
