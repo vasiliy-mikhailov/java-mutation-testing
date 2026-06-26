@@ -2,30 +2,35 @@
 """reward.py - mergeability reward for a generated JUnit test file.
 
 reward = 0.9 ** (penalty)   ->  1.0 means nothing broken.
-Each broken binary rule costs 1 penalty; unused code (rule 7) costs 1 PER LINE,
-so a one-line dead import barely dents the reward while a 15-line dead method
-(0.9^15 ~= 0.21) tanks it.
+penalty = the total number of LINES of bad test code, summed across every
+quality rule. A rule's penalty is how many lines of added test code violate it
+(an offending @Test method counts its full body; a per-line wart counts its
+matching lines), so a one-line slip barely dents the reward while a 15-line
+warty method (0.9^15 ~= 0.21) tanks it. The two build-outcome rules (green,
+mutation-improving) are not line-countable, so they stay binary (1 penalty) and
+act as prerequisites the PR gate requires anyway.
 
 A green, mutation-improving test that a maintainer will not merge is worth
 nothing, so "avoid <wart>" is only real if breaking it costs reward. Each rule
-below is machine-checkable; every penalty unit multiplies the reward by 0.9.
+below is machine-checkable; every penalty line multiplies the reward by 0.9.
 
 Pure stdlib - runs anywhere (opencode / kilocode / CI), no dependencies.
 
-Static rules (from the file alone):
+Static rules (from the file alone) -- penalty = lines of offending test code:
   1 api-only          no reflection into internals
   2 every-test-asserts no coverage-theater @Test
   3 no-vacuous-assert  no assertTrue(true) / assertEquals(x,x) / assertNotNull("lit")
   4 no-adnt-only       no @Test whose only check is assertDoesNotThrow / try-catch-fail
   5 deterministic      no sleep / unseeded Random / wall-clock / real network/IO
   6 no-disabled        no @Disabled / @Ignore added
-  7 no-unused-code     unused added import / private field / private method (penalty = lines)
+  7 no-unused-code     unused added import / private field / private method
   8 additive-only      (needs --baseline) no existing line removed
-Dynamic rules (need build inputs):
-  9 green              (needs --green true|false) all tests compile and pass
- 10 mutation-improving (needs --mut-before N --mut-after M) kills strictly increased
  11 no-partial-assert  no @Test that validates a string via substring match (assert the full value)
  12 no-trivial-accessor-test  no pure getter/setter/equals/hashCode/toString test (keep real logic)
+ 13 no-inner-class     no nested / @Nested / helper class declared in the test (keep tests flat)
+Dynamic rules (need build inputs) -- binary build outcomes (penalty 0/1):
+  9 green              (needs --green true|false) all tests compile and pass
+ 10 mutation-improving (needs --mut-before N --mut-after M) kills strictly increased
 
 Rules with missing inputs are reported n/a and excluded from the count.
 """
@@ -159,67 +164,64 @@ def evaluate(path, baseline_path, green, mut_before, mut_after):
     baseline = read(baseline_path) if baseline_path else None
     region = added_region(src, baseline)
     methods = test_methods(region)  # region == src when baseline is None; only OUR methods otherwise
-    rules = []  # (id, name, status: pass/fail/na, detail, penalty)
-    def add(i, name, fail, detail, penalty=None):
-        # binary rules cost 1 when broken; a weighted rule passes its own penalty
-        rules.append((i, name, "fail" if fail else "pass", detail if fail else "",
-                      penalty if penalty is not None else (1 if fail else 0)))
+    rules = []  # (id, name, status, detail, penalty)
+    def add(i, name, penalty, detail):
+        # penalty = LINES of bad test code for this rule (0 = clean). reward = 0.9 ** total penalty.
+        rules.append((i, name, "fail" if penalty else "pass", detail if penalty else "", penalty))
     def na(i, name, hint):
         rules.append((i, name, "na", hint, 0))
+    def mlines(names):  # total source lines of the flagged @Test methods
+        return sum(b.count("\n") + 1 for n, b, a in methods if n in names)
+    def plines(pat):    # region lines containing a match
+        return sum(1 for line in region.splitlines() if pat.search(line))
 
-    refl = [m.group(0) for m in REFLECT.finditer(region)]
-    add("1", "api-only", bool(refl), f"reflection: {sorted(set(refl))}")
+    refl = sorted({m.group(0) for m in REFLECT.finditer(region)})
+    add("1", "api-only", plines(REFLECT), f"reflection lines: {refl}")
 
-    noassert = [n for n, b, a in methods if not re.search(ASSERT, b) and 'expected' not in a]
-    add("2", "every-test-asserts", bool(noassert), f"no-assertion tests: {noassert}")
+    noassert = [n for n, b, a in methods if not re.search(ASSERT, b) and "expected" not in a]
+    add("2", "every-test-asserts", mlines(noassert), f"no-assertion tests: {noassert}")
 
-    vac = [m.group(0) for m in VACUOUS.finditer(region)]
-    add("3", "no-vacuous-assert", bool(vac), f"vacuous: {sorted(set(vac))}")
+    vac = sorted({m.group(0) for m in VACUOUS.finditer(region)})
+    add("3", "no-vacuous-assert", plines(VACUOUS), f"vacuous: {vac}")
 
     adnt = [n for n, b, a in methods if ADNT.search(b) and not non_adnt_assert(b)]
-    add("4", "no-adnt-only", bool(adnt), f"assertDoesNotThrow-only tests: {adnt}")
+    add("4", "no-adnt-only", mlines(adnt), f"assertDoesNotThrow-only tests: {adnt}")
 
-    flaky = [m.group(0) for m in FLAKY.finditer(region)]
-    add("5", "deterministic", bool(flaky), f"nondeterministic: {sorted(set(flaky))}")
+    flaky = sorted({m.group(0) for m in FLAKY.finditer(region)})
+    add("5", "deterministic", plines(FLAKY), f"nondeterministic: {flaky}")
 
-    dis = [m.group(0) for m in DISABLED.finditer(region)]
-    add("6", "no-disabled", bool(dis), f"disabled: {sorted(set(dis))}")
+    add("6", "no-disabled", plines(DISABLED), "@Disabled/@Ignore lines")
 
-    # WEIGHTED: penalty = number of lines of unused code (not a flat 1)
     dead, dead_lines = unused_code(src, baseline)
-    add("7", "no-unused-code", bool(dead), f"{dead_lines} unused line(s): {dead}", dead_lines)
+    add("7", "no-unused-code", dead_lines, f"{dead_lines} unused line(s): {dead}")
 
     if baseline is None:
         na("8", "additive-only", "pass --baseline to check")
     else:
         removed = [l for l in baseline.splitlines() if l.strip() and l not in set(src.splitlines())]
-        add("8", "additive-only", bool(removed), f"{len(removed)} baseline line(s) removed")
+        add("8", "additive-only", len(removed), f"{len(removed)} baseline line(s) removed")
 
+    # green / mutation-improving are build OUTCOMES (not line-countable) -> binary 1, and the PR gate
+    # requires them true anyway, so they act as prerequisites rather than line-weighted quality.
     if green is None:
         na("9", "green", "pass --green true|false")
     else:
-        add("9", "green", not green, "tests do not compile/pass")
+        add("9", "green", 0 if green else 1, "tests do not compile/pass")
 
     if mut_before is None or mut_after is None:
         na("10", "mutation-improving", "pass --mut-before N --mut-after M")
     else:
-        add("10", "mutation-improving", not (mut_after > mut_before),
+        add("10", "mutation-improving", 0 if mut_after > mut_before else 1,
             f"kills {mut_before} -> {mut_after} (no gain)")
 
-    # a @Test that validates ONE string PIECEMEAL: >=2 substring checks on the SAME variable
-    # (e.g. 6x assertTrue(url.contains("&p=v")) -> should be one assertEquals on the full url).
-    # A single presence check (assertThat(out, containsString("<?xml"))) is legit and NOT flagged.
     def piecemeal(b):
-        vs = (re.findall(r'assert(?:True|False)\s*\(\s*([\w.()]+)\.(?:contains|startsWith|endsWith|matches)\s*\(\s*"', b)
-              + re.findall(r'assertThat\s*\(\s*([\w.()]+)\s*,\s*containsString\s*\(\s*"', b))
+        vs = (re.findall(r"assert(?:True|False)\s*\(\s*([\w.()]+)\.(?:contains|startsWith|endsWith|matches)\s*\(\s*\"", b)
+              + re.findall(r"assertThat\s*\(\s*([\w.()]+)\s*,\s*containsString\s*\(\s*\"", b))
         return any(vs.count(v) >= 2 for v in set(vs))
     partial = [n for n, b, a in methods if piecemeal(b)]
-    add("11", "no-partial-assert", bool(partial), f"piecemeal substring validation (assert full value): {partial}")
+    add("11", "no-partial-assert", mlines(partial), f"piecemeal substring validation: {partial}")
 
-    # trivial getter/setter/equals/hashCode/toString tests — maintainers see these as noise (the
-    # mutation gate rewards killing accessor mutants cheaply). Keep only tests with real logic.
-    # A getter/setter test is spared if its body has logic (exception/validation/collaboration).
-    LOGIC = re.compile(r'assertThrows|assertThatThrownBy|\.isInstanceOf|\bfail\s*\(|Exception|Throws|Validates|\bverify\s*\(|Mockito', re.I)
+    LOGIC = re.compile(r"assertThrows|assertThatThrownBy|\.isInstanceOf|\bfail\s*\(|Exception|Throws|Validates|\bverify\s*\(|Mockito", re.I)
     def trivial(n, b):
         nl = n.lower()
         if any(k in nl for k in ("equals", "hashcode", "tostring")):
@@ -228,8 +230,19 @@ def evaluate(path, baseline_path, green, mut_before, mut_after):
             return True
         return False
     accessor = [n for n, b, a in methods if trivial(n, b)]
-    add("12", "no-trivial-accessor-test", bool(accessor),
-        f"trivial getter/setter/equals/hashCode/toString tests ({len(accessor)}): {accessor[:8]}")
+    add("12", "no-trivial-accessor-test", mlines(accessor),
+        f"trivial getter/setter/equals/hashCode/toString tests: {accessor[:8]}")
+
+    # no nested (inner) classes in the test -- keep tests flat; @Nested / helper classes add structure noise.
+    inner_lines, inner_names = 0, []
+    for m in re.finditer(r"(?m)^[ \t]+(?:(?:public|private|protected|static|final|abstract)\s+)*class\s+(\w+)", region):
+        br = region.find("{", m.end())
+        if br == -1:
+            continue
+        e = _brace_end(region, br)
+        inner_lines += region.count("\n", m.start(), e) + 1
+        inner_names.append(m.group(1))
+    add("13", "no-inner-class", inner_lines, f"inner classes {inner_names}: {inner_lines} line(s)")
 
     broken = [r for r in rules if r[2] == "fail"]
     evaluated = [r for r in rules if r[2] != "na"]
@@ -258,7 +271,7 @@ def main():
         mark = {"pass": "PASS", "fail": "FAIL", "na": " -- "}[s]
         wt = f" (+{p})" if p > 1 else ""   # show the weight only when a rule costs more than 1
         print(f"   [{mark}] {i}. {n}{wt}" + (f"   {d}" if d else ""))
-    print(f"\n  penalty = {penalty} ({len(broken)}/{len(evaluated)} rules broken; unused code weighted by line)"
+    print(f"\n  penalty = {penalty} lines of bad test code ({len(broken)}/{len(evaluated)} rules broken)"
           f"   ->   reward = 0.9 ^ {penalty} = {reward}\n")
 
 if __name__ == "__main__":

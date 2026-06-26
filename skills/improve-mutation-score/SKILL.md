@@ -187,11 +187,15 @@ python skills/improve-mutation-score/reward.py <TestFile> \
     --baseline <upstream copy of the file> --green true --mut-before <N> --mut-after <M>
 ```
 
-**reward = 0.9 ^ (penalty)** — `1.0` means nothing broken; each broken binary rule costs 1 penalty (a 0.9
-factor), and **unused code (rule 7) costs 1 penalty per LINE** — a one-line dead import barely dents the
-reward, a 15-line dead method (0.9^15 ≈ 0.21) tanks it. The rules:
+**reward = 0.9 ^ (penalty)** — `1.0` means nothing broken; **penalty = the total number of LINES of bad
+test code**, summed across every quality rule. A rule's penalty is how many lines of *added* test code
+violate it (an offending `@Test` counts its full method body; a per-line wart counts its matching lines), so
+a one-line slip barely dents the reward while a 15-line warty method (0.9^15 ≈ 0.21) tanks it. The two
+build-outcome rules — **green (9)** and **mutation-improving (10)** — are not line-countable, so they stay
+binary (1 penalty) and act as prerequisites the PR gate requires anyway. Penalties count only the lines
+**you added** (scoped by `--baseline`), never pre-existing upstream code. The rules:
 
-| # | rule | broken when |
+| # | rule | broken when (penalty = offending lines) |
 |---|---|---|
 | 1 | api-only | reaches internals via reflection (`setAccessible`, `getDeclaredField`, `ReflectionTestUtils`, `Whitebox`) — drive the public API instead |
 | 2 | every-test-asserts | a `@Test` exercises code but asserts nothing (coverage theater) |
@@ -199,12 +203,13 @@ reward, a 15-line dead method (0.9^15 ≈ 0.21) tanks it. The rules:
 | 4 | no-adnt-only | a `@Test` whose only check is `assertDoesNotThrow` / try-catch-`fail` — assert the real result |
 | 5 | deterministic | `Thread.sleep`, unseeded `new Random()`, wall-clock, real network / file IO |
 | 6 | no-disabled | adds `@Disabled` / `@Ignore` |
-| 7 | no-unused-code | leaves dead code — unused import / private field / private method; **penalty = number of unused lines** |
-| 8 | additive-only | removes or edits any existing line (see §4) |
-| 9 | green | a test does not compile or fails |
-| 10 | mutation-improving | mutant kills did not strictly rise vs the baseline |
+| 7 | no-unused-code | leaves dead code — unused import / private field / private method |
+| 8 | additive-only | removes or edits any existing line (see §4) — penalty = removed lines |
+| 9 | green | a test does not compile or fails — **binary** |
+| 10 | mutation-improving | mutant kills did not strictly rise vs the baseline — **binary** |
 | 11 | no-partial-assert | validates one string **piecemeal** — ≥2 substring checks (`assertTrue(url.contains("&p=v"))`) on the same variable; assert the full value with `assertEquals` instead |
 | 12 | no-trivial-accessor-test | pure getter/setter/`equals`/`hashCode`/`toString` tests — maintainers see these as noise; keep only tests with real logic (validation, exceptions, behaviour) |
+| 13 | no-inner-class | declares a nested / `@Nested` / helper class inside the test — keep tests flat; lift fixtures to the public API or a top-level test helper |
 
 **This is part of the §5 loop, not a final gate.** Each pass, once PIT is green, run the checker and treat
 every FAILED rule as more work. Fix each broken rule **without losing a kill** — rewrite the offending test
