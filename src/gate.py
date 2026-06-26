@@ -61,9 +61,10 @@ def count_tests(repo_dir):
     return n, test_files
 
 
-def candidate_classes(repo_dir, max_n=12):
-    """Pair each test class with its main class (Foo <- FooTest). Returns FQCN + rel paths,
-    ranked by test count (proxy for a logic-dense, well-covered target)."""
+def candidate_classes(repo_dir):
+    """Pair each test class with its main class (Foo <- FooTest). Returns EVERY paired class
+    (FQCN + rel paths), ranked by test count so the densest targets run first — but NOT capped
+    (stoicism: cover all classes, never a top-N slice; the queue + lanes bound the work, not a limit)."""
     mains = {}
     for base, _, files in os.walk(repo_dir):
         if os.sep + "main" + os.sep not in base + os.sep:
@@ -96,7 +97,7 @@ def candidate_classes(repo_dir, max_n=12):
                                   "test_file": os.path.relpath(p, repo_dir), "n_test": ntest})
                     break
     cands.sort(key=lambda c: -c["n_test"])
-    return cands[:max_n]
+    return cands
 
 
 def _module_dir(repo_dir, target_class):
@@ -169,9 +170,10 @@ def gate(repo, jdk=21, min_tests=20, run_green=True, probe_pit=True, timeout=31_
 
     if probe_pit:
         # the top class (most tests) can be awkward for PIT even when others baseline cleanly;
-        # try the next few before dropping the whole repo, and admit on the first that baselines
+        # try EVERY candidate (stoicism: no top-N) and admit on the first that baselines — this only
+        # costs extra probes when the early ones fail, since it breaks on the first success
         probed = None
-        for cand in cands[:3]:
+        for cand in cands:
             probe = pit.run_pit(rec["repo_dir"], cand["target_class"], cand["target_tests"], jdk=jdk, timeout=31_536_000)
             if probe.get("ok"):
                 probed = (cand, probe)
