@@ -5,14 +5,14 @@ Runs the agent headless on <workdir> with the task prompt; the agent reads the m
 SKILL.md and does its OWN PIT runs + test writing via its bash/file tools. Scoring is done
 OUTSIDE this process (by panel.py via pit.py) — never self-reported. Run with the 3.12 venv:
   /opt/ohvenv/bin/python panel_oh_run.py <workdir> <prompt>
-Env: OC_BASE, OC_MODEL, OC_KEY (+ optional OH_MAX_ITER). LLM config per the thinking-budget
-playbook: the "Unterminated string" truncation on dense god-classes is REASONING ballooning to the
-token cap (Qwen ruminates, the tool-call JSON gets sliced mid-string). Real fix (great-java-review,
-same endpoint): BOUND THE REASONING via thinking_token_budget + drop_params=False (OpenHands' default
-drop_params=True silently strips the budget off the wire), NOT just a bigger output cap. agent:
-max_output_tokens=65536 (generous OUTPUT room, now fully left for the answer since thinking is
-bounded), thinking_token_budget=8192, drop_params=False, enable_thinking=True, native tool calls.
-condenser: 4096, enable_thinking=False (thinking-on poisons summaries).
+Env: OC_BASE, OC_MODEL, OC_KEY (+ optional OH_MAX_ITER). LLM config = great-java-review's CURRENT
+config (same Qwen endpoint, hard-won): the "Unterminated string" truncation is reasoning eating the
+output budget, but the fix is NOT to cap reasoning — a thinking_token_budget STRANGLES it (capped
+reasoning gives up and emits noise; gjr proved budget=2048 -> 26k wandering chars / 0 tool calls).
+The fix is a big TOTAL output budget + UNBOUNDED reasoning: reasoning_content and content come back
+as separate fields (--reasoning-parser qwen3), so deep thinking + the full answer both fit. agent:
+max_output_tokens=131072, reasoning_effort=None, drop_params=False, enable_thinking=True, native
+tools. condenser: 4096, enable_thinking=False (thinking-on poisons summaries).
 """
 import os, sys, traceback, time, json
 
@@ -49,24 +49,24 @@ try:
     model = "openai/" + os.environ["OC_MODEL"]
     key = SecretStr(os.environ["OC_KEY"])
     _R = dict(timeout=31_536_000, num_retries=100, retry_min_wait=3, retry_max_wait=60)
-    # THE real fix for "Unterminated string" truncation (great-java-review, same Qwen endpoint):
-    # bound the REASONING, not the output. Qwen ruminates to the token cap and the tool-call JSON
-    # gets sliced mid-string. thinking_token_budget stops the rumination so </think> closes and the
-    # tool call is emitted; drop_params=False is the LINCHPIN — OpenHands defaults drop_params=True,
-    # which makes litellm strip the (unknown) thinking_token_budget off the wire (it keeps
-    # chat_template_kwargs but drops the budget). Keep the budget comfortably large (>=2048) or a
-    # too-tight cut leaks thinking into content and breaks the tool parser. With thinking bounded,
-    # the generous max_output_tokens is left fully for the answer.
-    _THINK = int(os.environ.get("JMT_THINK_BUDGET", "8192"))  # reasoning-heavy mutant work; > gjr's 2048
+    # "Unterminated string" truncation fix (great-java-review CURRENT config, same Qwen endpoint).
+    # The truncation is reasoning eating the output budget — but a thinking_token_budget does NOT
+    # tame it, it STRANGLES it: capped reasoning can't think the problem through, gives up, and
+    # emits noise (gjr kafka#17565: budget=2048 -> 26k chars of wandering, 0 tool calls). Caps are
+    # poison in RLVR (same lesson as the wall-clock cap). The fix is the OPPOSITE — give a big TOTAL
+    # output budget and let reasoning run as deep as it needs; reasoning_content and content come
+    # back as SEPARATE fields (--reasoning-parser qwen3), so deep thinking + the full answer both fit.
+    # max_output_tokens=131072 (the model serves 262k ctx; the condenser bounds the prompt so
+    # prompt+output stays under the ceiling). reasoning_effort=None (OpenHands' default 'high'
+    # conflicts). drop_params=False keeps extra_body intact.
     llm = LLM(model=model, base_url=base, api_key=key, usage_id="jmt-oh",
-              max_output_tokens=65536, temperature=0.0, native_tool_calling=True,
-              drop_params=False,
-              litellm_extra_body={"chat_template_kwargs": {"enable_thinking": True},
-                                  "thinking_token_budget": _THINK}, **_R)
+              max_output_tokens=131072, temperature=0.0, native_tool_calling=True,
+              reasoning_effort=None, drop_params=False,
+              litellm_extra_body={"chat_template_kwargs": {"enable_thinking": True}}, **_R)
     # condenser: thinking OFF (thinking-on dumps CoT into the summary, poisoning the agent's history)
     cond = LLM(model=model, base_url=base, api_key=key, usage_id="jmt-cond",
                max_output_tokens=4096, temperature=0.0, native_tool_calling=False,
-               drop_params=False,
+               reasoning_effort=None, drop_params=False,
                litellm_extra_body={"chat_template_kwargs": {"enable_thinking": False}}, **_R)
     register_builtins_agents(enable_browser=False)  # bash-runner / code-explorer / general-purpose subagents
     # register custom JMT sub-agent types (mutation-tester) from JMT_HOME/docker/subagents;
