@@ -51,13 +51,13 @@ def _classify(repo, branch):
 
 
 def discover(n=10, min_stars=1000, max_stars=200000, max_size_kb=150000,
-             pushed_after="2025-06-01", max_scan=120):
+             pushed_after="2025-06-01", max_scan=1000):
     # maintained, top-stars: rank by stars DESC, high floor, size is only a build-cost guard
     rows = _gh_json([
         "search", "repos", "--language=java",
         f"--stars={min_stars}..{max_stars}", f"--size=<{max_size_kb}",
         "--archived=false", "--include-forks=false", f"--updated=>={pushed_after}",
-        "--sort=stars", "--order=desc", f"--limit={max_scan}",
+        "--sort=stars", "--order=desc", f"--limit={max_scan}",  # scan deep (1000) so re-gated repos below the top-120 are reached
         "--json", "fullName,stargazersCount,pushedAt,defaultBranch"])
     out = []
     for r in rows:
