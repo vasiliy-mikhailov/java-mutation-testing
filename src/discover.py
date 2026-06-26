@@ -51,30 +51,51 @@ def _classify(repo, branch):
 
 
 def discover(n=10, min_stars=1000, max_stars=200000, max_size_kb=150000,
-             pushed_after="2025-06-01", max_scan=1000):
-    # maintained, top-stars: rank by stars DESC, high floor, size is only a build-cost guard
-    rows = _gh_json([
-        "search", "repos", "--language=java",
-        f"--stars={min_stars}..{max_stars}", f"--size=<{max_size_kb}",
-        "--archived=false", "--include-forks=false", f"--updated=>={pushed_after}",
-        "--sort=stars", "--order=desc", f"--limit={max_scan}",  # scan deep (1000) so re-gated repos below the top-120 are reached
-        "--json", "fullName,stargazersCount,pushedAt,defaultBranch"])
+             pushed_after="2025-06-01"):
+    """Infinite-depth discovery — NO arbitrary scan cap (P2/stoicism: never cap depth). GitHub
+    search hard-caps at 1000 results PER QUERY, so sweep the whole star space in DESCENDING
+    windows: search the band [min_stars, hi], take fresh candidates, then lower `hi` past the
+    band just covered. A persisted cursor resumes the sweep across rounds; at the floor it wraps
+    to the top to re-sweep (catching newly-pushed repos + any cleared from the seen-set). Every
+    repo >= the floor is eventually reached, with no fixed depth."""
+    cur = queue.CORPUS / "dig_star_cursor"
+    try:
+        hi = int(cur.read_text().strip())
+    except Exception:
+        hi = max_stars
     out = []
-    for r in rows:
-        repo = r["fullName"]
-        if queue.has(repo) or queue.is_seen(repo):
-            continue
-        if _JUNK_NAME.search(repo.split("/")[1]):
-            continue
-        tool = _classify(repo, r.get("defaultBranch"))
-        if not tool:
-            continue
-        out.append({"repo": repo, "stars": r.get("stargazersCount"),
-                    "pushedAt": r.get("pushedAt"), "build_tool": tool})
-        if len(out) >= n:
+    while len(out) < n and hi >= min_stars:
+        rows = _gh_json([
+            "search", "repos", "--language=java",
+            f"--stars={min_stars}..{hi}", f"--size=<{max_size_kb}",
+            "--archived=false", "--include-forks=false", f"--updated=>={pushed_after}",
+            "--sort=stars", "--order=desc", "--limit", "1000",
+            "--json", "fullName,stargazersCount,pushedAt,defaultBranch"])
+        if not rows:
+            hi = min_stars - 1
             break
+        lowest = min((r.get("stargazersCount") or hi) for r in rows)
+        for r in rows:
+            if len(out) >= n:
+                break
+            repo = r["fullName"]
+            if queue.has(repo) or queue.is_seen(repo):
+                continue
+            if _JUNK_NAME.search(repo.split("/")[1]):
+                continue
+            tool = _classify(repo, r.get("defaultBranch"))
+            if not tool:
+                continue
+            out.append({"repo": repo, "stars": r.get("stargazersCount"),
+                        "pushedAt": r.get("pushedAt"), "build_tool": tool})
+        if len(out) >= n:
+            break  # batch full — keep cursor here; taken ones become seen, re-search this band next round
+        hi = lowest - 1  # band exhausted of fresh repos -> descend to the next 1000-repo band
+    try:
+        cur.write_text(str(max_stars if hi < min_stars else hi))  # wrap to the top at the floor
+    except Exception:
+        pass
     return out
-
 
 if __name__ == "__main__":
     import sys
