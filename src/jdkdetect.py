@@ -16,6 +16,14 @@ _PATS = [r"<maven\.compiler\.release>\s*([\d.]+)", r"<maven\.compiler\.target>\s
 # or <version>17</version>. Take the LOWER bound — the minimum JDK that satisfies the range.
 _ENF = re.compile(r"<requireJavaVersion>.*?<version>\s*[\[\(]?\s*([\d.]+)", re.S)
 
+# Gradle: toolchain (JavaLanguageVersion.of(N)) is authoritative; also source/targetCompatibility,
+# JavaVersion.VERSION_N, and options.release. VERSION_1_8 -> 8 (checked before the bare VERSION_N).
+_GRADLE_PATS = [r"JavaLanguageVersion\.of\(\s*(\d+)",
+                r"JavaVersion\.VERSION_1_(\d+)",
+                r"JavaVersion\.VERSION_(\d+)\b",
+                r"(?:source|target)Compatibility\s*=?\s*[\'\"]?([\d.]+)",
+                r"(?:options\.)?release(?:\.set\(|\s*=\s*)\s*(\d+)"]
+
 
 def _norm(v):
     v = v.strip()
@@ -41,6 +49,16 @@ def detect_jdk(abs_repo, default=21):
             n = _norm(m)
             if n:
                 found.append(n)
+    for bg in glob.glob(os.path.join(abs_repo, "**", "build.gradle*"), recursive=True):
+        try:
+            txt = open(bg, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        for p in _GRADLE_PATS:
+            for m in re.findall(p, txt):
+                n = _norm(m)
+                if n:
+                    found.append(n)
     if not found:
         return default
     target = max(found)              # highest declared target across modules

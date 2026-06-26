@@ -179,9 +179,97 @@ def _inject_pitest(pom_path, abs_repo):
     return True
 
 
+GRADLE_PIT_PLUGIN = "1.15.0"
+
+
+def _build_tool(abs_repo):
+    if os.path.exists(os.path.join(abs_repo, "pom.xml")):
+        return "maven"
+    if any(os.path.exists(os.path.join(abs_repo, f)) for f in
+           ("build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts")):
+        return "gradle"
+    return "maven"
+
+
+def _gradle_module_path(abs_repo, target_class):
+    """(':a:b' gradle project path, repo-rel module dir) for the module owning target_class."""
+    rel = target_class.replace(".", "/") + ".java"
+    hits = glob.glob(os.path.join(abs_repo, "**", "src", "main", "java", rel), recursive=True)
+    if not hits:
+        return ":", "."
+    marker = os.sep + os.path.join("src", "main", "java") + os.sep
+    module_dir = os.path.relpath(hits[0].split(marker)[0], abs_repo)
+    if module_dir == ".":
+        return ":", "."
+    return ":" + module_dir.replace(os.sep, ":"), module_dir
+
+
+def _gradle_uses_junit5(abs_repo):
+    for f in glob.glob(os.path.join(abs_repo, "**", "build.gradle*"), recursive=True):
+        try:
+            t = open(f, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        if "useJUnitPlatform" in t or "junit-jupiter" in t or "org.junit.jupiter" in t:
+            return True
+    return False
+
+
+def _gradle_init_script(target_class, target_tests, j5, proj_path, jdk):
+    jvm = ('jvmArgs = ["' + '","'.join(ADD_OPENS.split(",")) + '"]') if jdk >= 11 else ""
+    j5line = ('junit5PluginVersion = "' + JUNIT5_PLUGIN_VERSION + '"') if j5 else ""
+    tpl = (
+        'initscript {\n'
+        '  repositories { mavenCentral() }\n'
+        '  dependencies { classpath "info.solidsoft.gradle.pitest:gradle-pitest-plugin:__PLUGIN__" }\n'
+        '}\n'
+        'allprojects { p ->\n'
+        '  p.afterEvaluate {\n'
+        '    if (p.path == "__PATH__") {\n'
+        '      p.pluginManager.apply(info.solidsoft.gradle.pitest.PitestPlugin)\n'
+        '      p.pitest {\n'
+        '        targetClasses = ["__CLASS__"]\n'
+        '        targetTests = ["__TESTS__"]\n'
+        '        outputFormats = ["XML"]\n'
+        '        timestampedReports = false\n'
+        '        threads = 1\n'
+        '        __J5__\n'
+        '        __JVM__\n'
+        '      }\n'
+        '    }\n'
+        '  }\n'
+        '}\n')
+    return (tpl.replace("__PLUGIN__", GRADLE_PIT_PLUGIN).replace("__PATH__", proj_path)
+            .replace("__CLASS__", target_class).replace("__TESTS__", target_tests)
+            .replace("__J5__", j5line).replace("__JVM__", jvm))
+
+
+def _run_pit_gradle(repo, abs_repo, target_class, target_tests, jdk, timeout):
+    proj_path, module_dir = _gradle_module_path(abs_repo, target_class)
+    j5 = _gradle_uses_junit5(abs_repo)
+    init = _gradle_init_script(target_class, target_tests, j5, proj_path, jdk)
+    with open(os.path.join(abs_repo, "jmt-pitest.init.gradle"), "w") as f:
+        f.write(init)
+    task = (proj_path + ":pitest") if proj_path != ":" else "pitest"
+    gw = "./gradlew" if os.path.exists(os.path.join(abs_repo, "gradlew")) else "gradle"
+    cmd = ("chmod +x gradlew 2>/dev/null; " + gw +
+           " --no-daemon --console=plain -Dorg.gradle.java.installations.auto-download=false --init-script jmt-pitest.init.gradle " + task)
+    rc, out = _sandbox.run(cmd, repo, jdk=jdk, timeout=timeout)
+    rdir = abs_repo if module_dir == "." else os.path.join(abs_repo, module_dir)
+    report = os.path.join(rdir, "build", "reports", "pitest", "mutations.xml")
+    result = {"rc": rc, "report": report, "ok": False, "junit5": j5,
+              "module": module_dir, "log_tail": out}
+    if rc == 0 and os.path.exists(report):
+        result.update(parse_report(report))
+        result["ok"] = True
+    return result
+
+
 def run_pit(repo, target_class, target_tests, jdk=21, timeout=31_536_000,
             mutators="ALL", pit_version=PIT_VERSION):
     abs_repo = _sandbox.abs_repo(repo)
+    if _build_tool(abs_repo) == "gradle":
+        return _run_pit_gradle(repo, abs_repo, target_class, target_tests, jdk, timeout)
     module = _module_of(abs_repo, target_class)
     pom_dir = abs_repo if module == "." else os.path.join(abs_repo, module)
     j5 = _uses_junit5(abs_repo)

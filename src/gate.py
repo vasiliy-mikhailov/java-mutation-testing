@@ -87,7 +87,8 @@ def candidate_classes(repo_dir):
             test_fq, _ = _fqcn(p, repo_dir)
             stem = os.path.basename(fn)[:-5]
             for cand_stem in (stem[:-4] if stem.endswith("Test") else None,
-                              stem[:-5] if stem.endswith("Tests") else None):
+                              stem[:-5] if stem.endswith("Tests") else None,
+                              stem[4:] if stem.startswith("Test") and len(stem) > 4 else None):
                 if not cand_stem:
                     continue
                 hit = next((fq for fq in mains if fq.endswith("." + cand_stem) or fq == cand_stem), None)
@@ -137,7 +138,7 @@ def gate(repo, jdk=21, min_tests=20, run_green=True, probe_pit=True, timeout=31_
     tool = build_tool(repo_dir)
     rel = os.path.relpath(repo_dir, str(__import__("common").PROJECT))
     rec = {"repo": repo, "sha": sha, "build_tool": tool, "repo_dir": rel, "jdk": jdk}
-    if tool != "maven":  # Maven first; Gradle gating lands next
+    if tool not in ("maven", "gradle"):
         return {**rec, "admitted": False, "reason": f"unsupported_build_tool:{tool}"}
 
     # Cheapest-first, BEFORE any build: count tests + find a paired target by file scan. This also
@@ -152,21 +153,36 @@ def gate(repo, jdk=21, min_tests=20, run_green=True, probe_pit=True, timeout=31_
 
     module = _module_dir(repo_dir, cands[0]["target_class"])
     rec["module"] = module
-    scope = "" if module == "." else f"-pl {module} -am"
-    # build the target module + its reactor deps (skip their tests); .m2 is a persistent volume so the
-    # installed artifacts are visible to the green/PIT steps below
-    rc, out, jdk = _build_retry(f"mvn {_F} {scope} -DskipTests install", repo_dir, jdk, timeout)
-    rec["jdk"] = jdk  # a class-file-version retry may have bumped the JDK — use it for green + PIT
-    if rc != 0:
-        log("medium", "gate_reject", repo=repo, reason="compile", module=module, rc=rc)
-        return {**rec, "admitted": False, "reason": "compile_fail", "log_tail": out}
-
-    if run_green:
-        tscope = "" if module == "." else f"-pl {module}"
-        rc, out = sandbox.run(f"mvn {_F} {tscope} test", repo_dir, jdk=jdk, timeout=timeout)
+    if tool == "gradle":
+        # build (compile main+test) then run the module's tests via the repo's own wrapper; the
+        # gradle plugin/dist cache is a persistent volume. PIT baseline (below) is gradle-aware.
+        gw = "chmod +x gradlew 2>/dev/null; ./gradlew --no-daemon --console=plain -Dorg.gradle.java.installations.auto-download=false"
+        gp = "" if module == "." else ":" + module.replace(os.sep, ":")
+        gtask = (lambda t: (gp + ":" + t) if gp else t)
+        rc, out = sandbox.run(f"{gw} {gtask('testClasses')}", repo_dir, jdk=jdk, timeout=timeout)
         if rc != 0:
-            log("medium", "gate_reject", repo=repo, reason="green", module=module, rc=rc)
-            return {**rec, "admitted": False, "reason": "tests_red", "log_tail": out}
+            log("medium", "gate_reject", repo=repo, reason="compile", module=module, rc=rc)
+            return {**rec, "admitted": False, "reason": "compile_fail", "log_tail": out}
+        if run_green:
+            rc, out = sandbox.run(f"{gw} {gtask('test')}", repo_dir, jdk=jdk, timeout=timeout)
+            if rc != 0:
+                log("medium", "gate_reject", repo=repo, reason="green", module=module, rc=rc)
+                return {**rec, "admitted": False, "reason": "tests_red", "log_tail": out}
+    else:
+        scope = "" if module == "." else f"-pl {module} -am"
+        # build the target module + its reactor deps (skip their tests); .m2 is a persistent volume so the
+        # installed artifacts are visible to the green/PIT steps below
+        rc, out, jdk = _build_retry(f"mvn {_F} {scope} -DskipTests install", repo_dir, jdk, timeout)
+        rec["jdk"] = jdk  # a class-file-version retry may have bumped the JDK — use it for green + PIT
+        if rc != 0:
+            log("medium", "gate_reject", repo=repo, reason="compile", module=module, rc=rc)
+            return {**rec, "admitted": False, "reason": "compile_fail", "log_tail": out}
+        if run_green:
+            tscope = "" if module == "." else f"-pl {module}"
+            rc, out = sandbox.run(f"mvn {_F} {tscope} test", repo_dir, jdk=jdk, timeout=timeout)
+            if rc != 0:
+                log("medium", "gate_reject", repo=repo, reason="green", module=module, rc=rc)
+                return {**rec, "admitted": False, "reason": "tests_red", "log_tail": out}
 
     if probe_pit:
         # the top class (most tests) can be awkward for PIT even when others baseline cleanly;
