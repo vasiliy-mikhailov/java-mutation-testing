@@ -204,14 +204,17 @@ def _gradle_module_path(abs_repo, target_class):
     return ":" + module_dir.replace(os.sep, ":"), module_dir
 
 
-def _gradle_uses_junit5(abs_repo):
-    for f in glob.glob(os.path.join(abs_repo, "**", "build.gradle*"), recursive=True):
+def _gradle_uses_junit5(abs_repo, module_dir="."):
+    """Per-MODULE junit5 detection: scan the target module's own test sources for the jupiter
+    import. Repo-wide detection mis-fires on multi-module repos that mix junit4 and junit5 (a
+    junit4 module + the junit5 plugin crashes the PIT minion with no tests)."""
+    base = abs_repo if module_dir == "." else os.path.join(abs_repo, module_dir)
+    for f in glob.glob(os.path.join(base, "src", "test", "**", "*.java"), recursive=True):
         try:
-            t = open(f, encoding="utf-8", errors="replace").read()
+            if "org.junit.jupiter" in open(f, encoding="utf-8", errors="replace").read():
+                return True
         except OSError:
             continue
-        if "useJUnitPlatform" in t or "junit-jupiter" in t or "org.junit.jupiter" in t:
-            return True
     return False
 
 
@@ -279,7 +282,7 @@ def _gradle_max_lts(abs_repo):
 
 def _run_pit_gradle(repo, abs_repo, target_class, target_tests, jdk, timeout):
     proj_path, module_dir = _gradle_module_path(abs_repo, target_class)
-    j5 = _gradle_uses_junit5(abs_repo)
+    j5 = _gradle_uses_junit5(abs_repo, module_dir)
     init = _gradle_init_script(target_class, target_tests, j5, proj_path, jdk)
     with open(os.path.join(abs_repo, "jmt-pitest.init.gradle"), "w") as f:
         f.write(init)
