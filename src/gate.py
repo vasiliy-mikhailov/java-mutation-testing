@@ -136,7 +136,7 @@ def gate(repo, jdk=21, min_tests=20, run_green=True, probe_pit=True, timeout=31_
     repo_dir, sha = clone(repo)
     jdk = jdkdetect.detect_jdk(repo_dir)
     tool = build_tool(repo_dir)
-    rel = os.path.relpath(repo_dir, str(__import__("common").PROJECT))
+    rel = os.path.relpath(repo_dir, str(__import__("common").DATA))  # DATA-relative; abs_repo resolves against DATA
     rec = {"repo": repo, "sha": sha, "build_tool": tool, "repo_dir": rel, "jdk": jdk}
     if tool not in ("maven", "gradle"):
         return {**rec, "admitted": False, "reason": f"unsupported_build_tool:{tool}"}
@@ -156,20 +156,11 @@ def gate(repo, jdk=21, min_tests=20, run_green=True, probe_pit=True, timeout=31_
     if tool == "gradle":
         jdk = min(jdk, pit._gradle_max_lts(repo_dir))  # cap to what the wrapper supports
         rec["jdk"] = jdk
-        # build (compile main+test) then run the module's tests via the repo's own wrapper; the
-        # gradle plugin/dist cache is a persistent volume. PIT baseline (below) is gradle-aware.
-        gw = "chmod +x gradlew 2>/dev/null; ./gradlew --no-daemon --console=plain -Dorg.gradle.java.installations.auto-download=false"
-        gp = "" if module == "." else ":" + module.replace(os.sep, ":")
-        gtask = (lambda t: (gp + ":" + t) if gp else t)
-        rc, out = sandbox.run(f"{gw} {gtask('testClasses')}", repo_dir, jdk=jdk, timeout=timeout)
-        if rc != 0:
-            log("medium", "gate_reject", repo=repo, reason="compile", module=module, rc=rc)
-            return {**rec, "admitted": False, "reason": "compile_fail", "log_tail": out}
-        if run_green:
-            rc, out = sandbox.run(f"{gw} {gtask('test')}", repo_dir, jdk=jdk, timeout=timeout)
-            if rc != 0:
-                log("medium", "gate_reject", repo=repo, reason="green", module=module, rc=rc)
-                return {**rec, "admitted": False, "reason": "tests_red", "log_tail": out}
+        # No separate build/green for gradle. The PIT probe's `./gradlew :module:pitest` already
+        # compiles the module AND runs its tests (PIT refuses to baseline on red tests), so the probe
+        # IS the gate. Worse, running `./gradlew testClasses` + `test` first leaves build / config-cache
+        # state that POISONS the follow-up pitest (proven: pitest fails right after test on a fresh
+        # clone, but baselines cleanly when run as the first gradle invocation). So let the probe gate.
     else:
         scope = "" if module == "." else f"-pl {module} -am"
         # build the target module + its reactor deps (skip their tests); .m2 is a persistent volume so the
@@ -193,6 +184,10 @@ def gate(repo, jdk=21, min_tests=20, run_green=True, probe_pit=True, timeout=31_
         probed = None
         for cand in cands:
             probe = pit.run_pit(rec["repo_dir"], cand["target_class"], cand["target_tests"], jdk=jdk, timeout=31_536_000)
+            if not probe.get("ok"):
+                # PIT can flake on the first run of a fresh clone (gradle still building the module
+                # jars its coverage classpath needs); a retry with the jars in place usually baselines.
+                probe = pit.run_pit(rec["repo_dir"], cand["target_class"], cand["target_tests"], jdk=jdk, timeout=31_536_000)
             if probe.get("ok"):
                 probed = (cand, probe)
                 break
