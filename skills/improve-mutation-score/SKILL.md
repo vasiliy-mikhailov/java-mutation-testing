@@ -140,24 +140,38 @@ loop:
   else                               -> read the still-SURVIVED mutants (§3), add tests (§4), continue
 ```
 
-**Big class (logic-dense / 2000+ lines / many methods)? You are the TEST-MANAGER — orchestrate, do NOT
-write tests yourself.** Authoring every method's tests in YOUR own context is what drowns the run (millions
-of tokens, a cut-off response, a broken file -> BROKE_BUILD). Instead:
+**More than about 3 methods to cover? You are the TEST-MANAGER: delegate one method at a time, do NOT
+author them all yourself.** Writing every method's tests in YOUR own context is what drowns the run: PIT
+reports, file edits, and the class source pile into one conversation until it exceeds the model window and
+the response is cut off mid-edit (a truncated tool call, a broken file, a left-broken build). The cure is
+to give each method its own fresh context.
+
+Delegate with **your environment's sub-agent / task tool** (e.g. an OpenHands `task`, a Claude Code Task).
+Pick a sub-agent that can **edit files and run tests** -- NOT a read-only "explore / analyze" agent, which
+will read the code and write nothing. **Your tool may warn "do not delegate file edits, use the editor
+directly" -- that default does NOT apply here:** the per-method test-writing IS exactly what you delegate,
+because a multi-method class does not fit in one context. This is the intended exception.
+
+Workflow:
 1. **List the methods** of the class (just read the source).
-2. **For each method, ONE AT A TIME (sequentially — never in parallel: the sub-agents all edit the same test
-   file and would collide), delegate to a fresh `mutation-tester` sub-agent.** Give it the method name, the
-   class, the test class, the JDK, and the per-method PIT command. The mutation-tester scopes PIT to that one
-   method (`-DexcludedMethods=` every OTHER method plus `<init>,<clinit>`, quoted), reads that method's
-   survivors, APPENDS tests that kill them, runs them, FIXES any breakage, and reports the `@Test` names it
-   added. **Use `mutation-tester` — NOT `code-explorer` or `bash-runner`; those only analyze, they will not
-   author or fix tests** (that mistake produces a long run that writes zero tests).
-3. You do NOT touch the test file yourself — each mutation-tester already edited it. Move to the next method.
+2. **For each method, ONE AT A TIME (sequential, NEVER parallel: the sub-agents share one test file and
+   would collide), spawn a sub-agent and give it this brief:**
+   > Raise the PIT mutation score of method `M` of class `C` (test class `T`, JDK `<jdk>`). Run the §5
+   > loop scoped to `M` ONLY: keep `-DtargetClasses=C -DtargetTests=T` and add
+   > `-DexcludedMethods="<every OTHER method of C, plus <init>,<clinit>>"` (keep it QUOTED so the shell
+   > never treats `<init>` as a redirect). Read `M`'s surviving mutants, APPEND `@Test` methods named
+   > `test<Method>_<case>` (never modify an existing test, never touch production code), run them, FIX any
+   > compile/red breakage, and re-run the scoped PIT until survivors stop dropping. PIT is slow on a
+   > mutant-dense method -- give every command a huge timeout and be patient; a slow command is not a hang.
+   > Report back SHORT: the `@Test` names added, `M`'s score before->after, and "T compiles + all green" (or
+   > exactly what is still broken). Never paste raw PIT / build output back -- distill it.
+3. You do NOT touch the test file yourself between delegations. Move to the next method.
 4. When every method is done, run ONE whole-class PIT (no `withHistory`) to confirm the overall score rose and
-   ALL tests compile + are green. If the build is broken, delegate the fix to a `mutation-tester`.
-5. The harness commits the result and opens the PR — you are done when the whole-class build is green and the
-   mutation score is up.
-For a small/medium class do NOT delegate — just write the tests yourself; delegation only pays off when a
-single context cannot hold the whole class.
+   ALL tests compile + are green. If the build is broken, delegate the fix to a sub-agent (hand it the javac
+   errors).
+5. You are done when the whole-class build is green and the mutation score is up.
+For a tiny class (1-3 methods) just write the tests yourself; the delegation overhead only pays off past
+one context's worth of work.
 
 **Make the loop cheap so you can be exhaustive:** add **`-DwithHistory=true`** to your iterative PIT
 re-runs. PIT caches results for unchanged production code + tests and only re-evaluates the mutants your
