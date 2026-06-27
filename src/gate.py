@@ -21,6 +21,18 @@ def clone(repo, dest=None):
     dest = dest or str(CLONES / repo.replace("/", "__"))
     if os.path.exists(dest):
         subprocess.run(["rm", "-rf", dest], check=False)
+        if os.path.exists(dest):
+            # rm left files behind: an orphaned build container (e.g. one orphaned by a dig/improve
+            # restart) is still holding this clone, so rm -rf hits "Directory not empty" on a busy
+            # file, gh clone then lands in a non-empty dir and the whole gate fails. Kill any
+            # container bind-mounting this path, then clear it again.
+            for cid in subprocess.run(["docker", "ps", "-q"], capture_output=True, text=True).stdout.split():
+                src = subprocess.run(["docker", "inspect", "-f", "{{range .Mounts}}{{.Source}}:{{end}}", cid],
+                                     capture_output=True, text=True).stdout
+                if dest in src:
+                    subprocess.run(["docker", "rm", "-f", cid], check=False,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(["rm", "-rf", dest], check=False)
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     subprocess.run(["gh", "repo", "clone", repo, dest, "--", "--depth", "1"],
                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
