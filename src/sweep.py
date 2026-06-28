@@ -7,14 +7,16 @@ this orch container) so baselines are clean. Runs sequentially to bound load whi
 """
 import os, sys, json, time
 import draw, panel, gate
-from common import PROJECT, CLONES, CORPUS, log
+from common import DATA, CLONES, CORPUS, log
 
 AGENTS = ("openhands", "opencode", "kilocode")
 SWEEP_DIR = CORPUS / "sweep"
 
 
 def _result_path(agent, repo, cls):
-    return CORPUS / "panel" / f"{agent}__{('clones__sweep_' + agent + '_' + repo.replace('/', '_')).replace('/', '__')}__{cls}.json"
+    dest = CLONES / f"sweep_{agent}_{repo.replace('/', '_')}"
+    rel = os.path.relpath(str(dest), str(DATA))                  # same DATA-relative rel sweep passes panel
+    return CORPUS / "panel" / f"{agent}__{rel.replace('/', '__')}__{cls}.json"   # mirror panel.py's write
 
 
 def sweep(n_targets=3, agents=AGENTS):
@@ -34,7 +36,7 @@ def sweep(n_targets=3, agents=AGENTS):
                 continue
             try:
                 gate.clone(t["repo"], dest=str(dest))           # fresh, docker-bounded
-                rel = os.path.relpath(str(dest), str(PROJECT))
+                rel = os.path.relpath(str(dest), str(DATA))     # DATA-relative; abs_repo resolves against DATA
                 r = panel.run_agent(agent, rel, t["target_class"], t["target_tests"],
                                     t["test_file"], t["src_file"])
                 rows.append(r)

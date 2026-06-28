@@ -11,6 +11,7 @@ import os, re, subprocess, json
 import sandbox
 import pit
 import jdkdetect
+import maint
 from common import CLONES, log
 
 TEST_ANNO = re.compile(r"@(Test|ParameterizedTest|RepeatedTest)\b")
@@ -20,7 +21,7 @@ PKG = re.compile(r"^\s*package\s+([\w.]+)\s*;", re.M)
 def clone(repo, dest=None):
     dest = dest or str(CLONES / repo.replace("/", "__"))
     if os.path.exists(dest):
-        subprocess.run(["rm", "-rf", dest], check=False)
+        maint.reap_clone(dest)
         if os.path.exists(dest):
             # rm left files behind: an orphaned build container (e.g. one orphaned by a dig/improve
             # restart) is still holding this clone, so rm -rf hits "Directory not empty" on a busy
@@ -29,10 +30,10 @@ def clone(repo, dest=None):
             for cid in subprocess.run(["docker", "ps", "-q"], capture_output=True, text=True).stdout.split():
                 src = subprocess.run(["docker", "inspect", "-f", "{{range .Mounts}}{{.Source}}:{{end}}", cid],
                                      capture_output=True, text=True).stdout
-                if dest in src:
+                if any(s == dest or s.startswith(dest + "/") for s in src.split(":")):
                     subprocess.run(["docker", "rm", "-f", cid], check=False,
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            subprocess.run(["rm", "-rf", dest], check=False)
+            maint.reap_clone(dest)
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     subprocess.run(["gh", "repo", "clone", repo, dest, "--", "--depth", "1"],
                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)

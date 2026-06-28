@@ -1,8 +1,12 @@
 """The candidate queue (P3): corpus/queue.jsonl, one admitted record per repo, deduped."""
-import json, os
+import json, os, threading
 from common import CORPUS
 
 QUEUE = CORPUS / "queue.jsonl"
+
+# dig runs DIG_WORKERS threads in ONE process; the queue/no_baseline files are read-modify-written.
+# Serialize every such update so a concurrent reader can't drop a sibling thread's write.
+_LOCK = threading.Lock()
 
 
 def load():
@@ -14,13 +18,14 @@ def load():
 def admit(record):
     """Append a candidate record, replacing any prior entry for the same repo."""
     CORPUS.mkdir(parents=True, exist_ok=True)
-    rows = [r for r in load() if r.get("repo") != record.get("repo")]
-    rows.append(record)
-    tmp = str(QUEUE) + ".tmp"
-    with open(tmp, "w") as f:
-        for r in rows:
-            f.write(json.dumps(r) + "\n")
-    os.replace(tmp, str(QUEUE))
+    with _LOCK:
+        rows = [r for r in load() if r.get("repo") != record.get("repo")]
+        rows.append(record)
+        tmp = str(QUEUE) + ".tmp"
+        with open(tmp, "w") as f:
+            for r in rows:
+                f.write(json.dumps(r) + "\n")
+        os.replace(tmp, str(QUEUE))
     return record
 
 
@@ -50,6 +55,7 @@ def is_no_baseline(cls):
 
 def mark_no_baseline(cls):
     CORPUS.mkdir(parents=True, exist_ok=True)
-    if not is_no_baseline(cls):
-        with open(NO_BASELINE_FILE, "a") as f:
-            f.write(cls + "\n")
+    with _LOCK:
+        if not is_no_baseline(cls):
+            with open(NO_BASELINE_FILE, "a") as f:
+                f.write(cls + "\n")

@@ -14,7 +14,7 @@ _PATS = [r"<maven\.compiler\.release>\s*([\d.]+)", r"<maven\.compiler\.target>\s
          r"<source>\s*([\d.]+)\s*</source>"]
 # enforcer requireJavaVersion pins the JDK on modern (esp. top-starred) repos: <version>[17,22)</version>
 # or <version>17</version>. Take the LOWER bound — the minimum JDK that satisfies the range.
-_ENF = re.compile(r"<requireJavaVersion>.*?<version>\s*[\[\(]?\s*([\d.]+)", re.S)
+_ENF = re.compile(r"<requireJavaVersion>(?:(?!</requireJavaVersion>).)*?<version>\s*[\[\(]?\s*([\d.]+)", re.S)
 
 # Gradle: toolchain (JavaLanguageVersion.of(N)) is authoritative; also source/targetCompatibility,
 # JavaVersion.VERSION_N, and options.release. VERSION_1_8 -> 8 (checked before the bare VERSION_N).

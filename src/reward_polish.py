@@ -39,15 +39,49 @@ def polish(path):
 
     # drop unused private helper methods/fields (name referenced only at its own declaration) — these
     # are left behind when tests that used them are removed. Conservative: word-boundary count <= 1.
+    def _skip(s, j):  # if s[j] starts a string/char literal or //|/* comment, return index past it
+        c = s[j]
+        if c == '"' or c == "'":
+            j += 1
+            while j < len(s) and s[j] != c:
+                j += 2 if s[j] == "\\" else 1
+            return j + 1
+        if c == "/" and j + 1 < len(s):
+            if s[j + 1] == "/":
+                e = s.find("\n", j)
+                return len(s) if e < 0 else e
+            if s[j + 1] == "*":
+                e = s.find("*/", j + 2)
+                return len(s) if e < 0 else e + 2
+        return j + 1
+
     def _brace_end(s, b):
         d = 0
-        for j in range(b, len(s)):
-            if s[j] == "{":
+        j = b
+        while j < len(s):
+            c = s[j]
+            if c == '"' or c == "'" or c == "/":
+                j = _skip(s, j)
+                continue
+            if c == "{":
                 d += 1
-            elif s[j] == "}":
+            elif c == "}":
                 d -= 1
                 if d == 0:
                     return j
+            j += 1
+        return len(s) - 1
+
+    def _semi_end(s, b):  # index of the statement-terminating ';' not inside a literal/comment
+        j = b
+        while j < len(s):
+            c = s[j]
+            if c == '"' or c == "'" or c == "/":
+                j = _skip(s, j)
+                continue
+            if c == ";":
+                return j
+            j += 1
         return len(s) - 1
     removed_members = 0
     for _ in range(8):  # iterate: removing A may make its callee B unused
@@ -61,7 +95,7 @@ def polish(path):
             for m in re.finditer(r'(?m)^[ \t]*private\s+(?:static\s+|final\s+)*[\w.$<>,\[\]\s]+?\b(\w+)\s*=[^;{]*;', src):
                 if len(re.findall(r'\b' + re.escape(m.group(1)) + r'\b', src)) <= 1:
                     ls = src.rfind("\n", 0, m.start()) + 1
-                    cut = (ls, src.find(";", m.start()) + 1)
+                    cut = (ls, _semi_end(src, m.start()) + 1)
                     break
         if not cut:
             break

@@ -9,7 +9,7 @@ mode="private" (default): persist the strengthened test file(s) to a LOCAL store
 mode="upstream": fork upstream to the authed user and open the PR against upstream.
 Commits ONLY the changed test file (never build artifacts). gh provides auth.
 """
-import subprocess, time, json, os, shutil
+import subprocess, time, json, os, shutil, re
 import reward_polish
 import wartscan
 import sandbox
@@ -35,12 +35,20 @@ GENERATED = os.environ.get("JMT_GENERATED",
                            "/home/vmihaylov/java-mutation-testing/current_attempt/current_iteration/jmt-generated")
 
 
-def _persist_local(abs_repo, name, result, test_files, agent=None, base_sha=None):
-    """Copy the strengthened test file(s) to GENERATED/<name>/<repo-relative-path> + a meta.json.
-    Mechanically polishes each file, then WART-GATES it (wartscan over the agent's added lines):
-    a `junk` scratch file is dropped outright; any other warts are recorded per-file in meta.json
-    with a `clean` flag, so PR-prep ships only vetted material. Returns (saved_paths, out_dir)."""
-    out = os.path.join(GENERATED, name)
+def _slug(repo_full):
+    """Owner-qualified store key: a bare repo name collides across owners (two `utils` repos
+    overwrite each other), so key by the FULL slug owner__name, sanitized for a path segment."""
+    return re.sub(r"[^A-Za-z0-9._-]", "_", repo_full.replace("/", "__"))
+
+
+def _persist_local(abs_repo, slug, result, test_files, agent=None, base_sha=None):
+    """Copy the strengthened test file(s) to GENERATED/<slug>/<repo-relative-path> + a PER-CLASS
+    meta-<class>.json. `slug` is the owner-qualified repo key (see _slug). Mechanically polishes each
+    file, then WART-GATES it (wartscan over the agent's added lines): a `junk` scratch file is dropped
+    outright; any other warts are recorded per-file in the meta with a `clean` flag, so PR-prep ships
+    only vetted material. The meta filename is keyed by the target class so a second class never
+    overwrites the first and two lanes never write the same meta path. Returns (saved_paths, out_dir)."""
+    out = os.path.join(GENERATED, slug)
     saved, file_warts = [], {}
     for tf in test_files:
         src = os.path.join(abs_repo, tf)
@@ -61,12 +69,13 @@ def _persist_local(abs_repo, name, result, test_files, agent=None, base_sha=None
             file_warts[tf] = warts
             log("medium", "wart_flag", cls=result.get("class"), file=tf, warts=warts)
     os.makedirs(out, exist_ok=True)
-    meta = {"upstream_name": name, "class": result.get("class"), "agent": agent,
+    meta = {"upstream_name": slug, "class": result.get("class"), "agent": agent,
             "score_before": result.get("score_before"), "score_after": result.get("score_after"),
             "killed_before": result.get("killed_before"), "killed_after": result.get("killed_after"),
             "test_files": saved, "warts": file_warts, "clean": not file_warts,
             "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
-    json.dump(meta, open(os.path.join(out, "meta.json"), "w"), indent=2)
+    cls_key = re.sub(r"[^A-Za-z0-9._-]", "_", result.get("class") or "unknown")
+    json.dump(meta, open(os.path.join(out, "meta-" + cls_key + ".json"), "w"), indent=2)
     return saved, out
 
 MIN_KILLED = 2
@@ -150,7 +159,7 @@ def open_for_result(repo_full, repo_dir, result, mode="private",
              f"PIT mutants in {cls_simple} ({result['score_before']:.0%}->{result['score_after']:.0%})")
 
     if mode == "private":
-        saved, out = _persist_local(abs_repo, name, result, [test_file], base_sha=base_sha)
+        saved, out = _persist_local(abs_repo, _slug(repo_full), result, [test_file], base_sha=base_sha)
         log("slow", "pr_persisted", mode="local", path=out, cls=result["class"], files=len(saved))
         return {"opened": True, "mode": "local", "path": out, "test_files": saved, "branch": branch}
 
@@ -190,7 +199,7 @@ def open_panel_pr(repo_dir, result, agent, min_killed=1):
     _sh(["git", "config", "--global", "--add", "safe.directory", "*"])
     origin = _sh(["git", "-C", abs_repo, "remote", "get-url", "origin"])
     base = origin.rstrip("/")
-    name = (base[:-4] if base.endswith(".git") else base).split("/")[-1]
+    repo_full = "/".join((base[:-4] if base.endswith(".git") else base).split("/")[-2:])
     changed = subprocess.run(["git", "-C", abs_repo, "ls-files", "-mo", "--exclude-standard"],
                              capture_output=True, text=True).stdout.splitlines()
     test_files = [f for f in changed if "src/test/" in f]
@@ -211,6 +220,6 @@ def open_panel_pr(repo_dir, result, agent, min_killed=1):
            f"({result['score_before']:.1%} -> {result['score_after']:.1%})\n\n"
            f"Append-only PIT-guided tests via the improve-mutation-score skill.")
     _sh(["git", "-C", abs_repo, "commit", "-m", msg])
-    saved, out = _persist_local(abs_repo, name, result, test_files, agent=agent, base_sha=base_sha)
+    saved, out = _persist_local(abs_repo, _slug(repo_full), result, test_files, agent=agent, base_sha=base_sha)
     log("slow", "panel_pr", mode="local", agent=agent, path=out, cls=result["class"], files=len(saved))
     return {"opened": True, "mode": "local", "path": out, "test_files": saved, "branch": branch}

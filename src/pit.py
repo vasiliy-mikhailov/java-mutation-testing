@@ -135,13 +135,23 @@ def _module_of(abs_repo, target_class):
     return "." if rp == "." else rp
 
 
-def _uses_junit5(abs_repo):
-    for pom in glob.glob(os.path.join(abs_repo, "**", "pom.xml"), recursive=True):
+def _uses_junit5(abs_repo, module="."):
+    """Per-MODULE junit5 detection: scan the target module's own test sources + module pom for the
+    jupiter import/dep. Repo-wide detection mis-fires on multi-module repos that mix junit4 and
+    junit5 (a junit4 module + the junit5 plugin crashes the PIT minion with no tests)."""
+    base = abs_repo if module == "." else os.path.join(abs_repo, module)
+    for f in glob.glob(os.path.join(base, "src", "test", "**", "*.java"), recursive=True):
         try:
-            if "junit-jupiter" in open(pom, encoding="utf-8", errors="replace").read():
+            if "org.junit.jupiter" in open(f, encoding="utf-8", errors="replace").read():
                 return True
         except OSError:
-            pass
+            continue
+    pom = os.path.join(base, "pom.xml")
+    try:
+        if "junit-jupiter" in open(pom, encoding="utf-8", errors="replace").read():
+            return True
+    except OSError:
+        pass
     return False
 
 
@@ -218,9 +228,45 @@ def _gradle_uses_junit5(abs_repo, module_dir="."):
     return False
 
 
-def _gradle_init_script(target_class, target_tests, j5, proj_path, jdk):
+def _gradle_jupiter_version(abs_repo):
+    """Highest JUnit Jupiter/Platform version a gradle repo declares - scans build.gradle(.kts) and
+    version-catalog .toml files for junit-jupiter / junit-bom coordinates (pom-only _jupiter_version
+    finds nothing in a gradle repo)."""
+    cands = []
+    pats = (os.path.join(abs_repo, "**", "*.gradle"), os.path.join(abs_repo, "**", "*.gradle.kts"),
+            os.path.join(abs_repo, "**", "*.toml"))
+    for pat in pats:
+        for f in glob.glob(pat, recursive=True):
+            try:
+                txt = open(f, encoding="utf-8", errors="replace").read()
+            except OSError:
+                continue
+            # [versions] table entries (toml version catalog), keyed by name for version.ref resolution
+            vers = {n: v for n, v in _re.findall(r'([A-Za-z0-9._-]+)\s*=\s*"([0-9][0-9.]*)"', txt)}
+            # direct coordinate or BOM with inline version: org.junit.jupiter:junit-jupiter:6.0.0
+            cands += _re.findall(
+                r"junit(?:-jupiter(?:-api|-engine|-params)?|-bom)[:\"',]+\s*v?([0-9][0-9.]*)", txt)
+            # version-catalog entry: module = "...junit-jupiter", version(.ref) = "..."
+            for ver in _re.findall(
+                    r'junit(?:-jupiter(?:-api|-engine|-params)?|-bom)"[^\n}]*?version(?:\.ref)?\s*=\s*"([^"]+)"', txt):
+                cands.append(vers.get(ver, ver) if not ver[:1].isdigit() else ver)
+    return max(cands, key=_verkey) if cands else None
+
+
+def _gradle_init_script(target_class, target_tests, j5, proj_path, jdk, jver=None):
     jvm = ('jvmArgs = ["' + '","'.join(ADD_OPENS.split(",")) + '"]') if jdk >= 11 else ""
-    j5line = ('junit5PluginVersion = "' + JUNIT5_PLUGIN_VERSION + '"') if j5 else ""
+    # JUnit >= 6: bump PIT + the junit5 plugin and pin junit-platform-launcher to the project's own
+    # platform version so engine == launcher (else the minion dies "OutputDirectoryCreator not
+    # available"), mirroring the maven _pit_plugin path.
+    if j5 and _verkey(jver)[0] >= 6:
+        plat = _platform_version(jver) or jver
+        j5line = ('pitestVersion = "' + PIT_VERSION_NEW + '"\n'
+                  '        junit5PluginVersion = "' + JUNIT5_PLUGIN_VERSION_NEW + '"')
+        launcher = ('p.dependencies.add("pitest", '
+                    '"org.junit.platform:junit-platform-launcher:' + plat + '")')
+    else:
+        j5line = ('junit5PluginVersion = "' + JUNIT5_PLUGIN_VERSION + '"') if j5 else ""
+        launcher = ""
     tpl = (
         'initscript {\n'
         '  repositories { mavenCentral() }\n'
@@ -230,6 +276,7 @@ def _gradle_init_script(target_class, target_tests, j5, proj_path, jdk):
         '  p.afterEvaluate {\n'
         '    if (p.path == "__PATH__") {\n'
         '      p.pluginManager.apply(info.solidsoft.gradle.pitest.PitestPlugin)\n'
+        '      __LAUNCHER__\n'
         '      p.pitest {\n'
         '        targetClasses = ["__CLASS__"]\n'
         '        targetTests = ["__TESTS__"]\n'
@@ -244,6 +291,7 @@ def _gradle_init_script(target_class, target_tests, j5, proj_path, jdk):
         '}\n')
     return (tpl.replace("__PLUGIN__", GRADLE_PIT_PLUGIN).replace("__PATH__", proj_path)
             .replace("__CLASS__", target_class).replace("__TESTS__", target_tests)
+            .replace("__LAUNCHER__", launcher)
             .replace("__J5__", j5line).replace("__JVM__", jvm))
 
 
@@ -283,7 +331,8 @@ def _gradle_max_lts(abs_repo):
 def _run_pit_gradle(repo, abs_repo, target_class, target_tests, jdk, timeout):
     proj_path, module_dir = _gradle_module_path(abs_repo, target_class)
     j5 = _gradle_uses_junit5(abs_repo, module_dir)
-    init = _gradle_init_script(target_class, target_tests, j5, proj_path, jdk)
+    jver = _gradle_jupiter_version(abs_repo) if j5 else None
+    init = _gradle_init_script(target_class, target_tests, j5, proj_path, jdk, jver)
     with open(os.path.join(abs_repo, "jmt-pitest.init.gradle"), "w") as f:
         f.write(init)
     task = (proj_path + ":pitest") if proj_path != ":" else "pitest"
@@ -308,7 +357,7 @@ def run_pit(repo, target_class, target_tests, jdk=21, timeout=31_536_000,
         return _run_pit_gradle(repo, abs_repo, target_class, target_tests, jdk, timeout)
     module = _module_of(abs_repo, target_class)
     pom_dir = abs_repo if module == "." else os.path.join(abs_repo, module)
-    j5 = _uses_junit5(abs_repo)
+    j5 = _uses_junit5(abs_repo, module)
     common_d = (f"-DtargetClasses={target_class} -DtargetTests={target_tests} "
                 f"-Dmutators={mutators} -DoutputFormats=XML -DtimestampedReports=false "
                 f"-DfullMutationMatrix=false")

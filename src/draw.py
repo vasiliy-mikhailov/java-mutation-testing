@@ -38,9 +38,9 @@ def draw(n=10, build_tool="maven"):
             continue
         if build_tool and r.get("build_tool") != build_tool:
             continue
-        if queue.is_no_baseline(r["repo"]):
-            continue
         for c in r.get("candidate_classes", []):
+            # NO_BASELINE is CLASS-keyed (panel marks the precise un-baselineable class), so skip
+            # only that class — never the whole repo.
             if queue.is_no_baseline(c["target_class"]):
                 continue
             targets.append({

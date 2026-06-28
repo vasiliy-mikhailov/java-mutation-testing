@@ -19,8 +19,10 @@ mergeability rules, read `.openhands/skills/improve-mutation-score/SKILL.md`.
 
 ENVIRONMENT (this harness only -- not part of the skill): there is NO local JDK. Run EVERY maven / PIT
 command via the helper `jrun <JDK> '<command>'`. Run each command **bare**: do NOT pipe a `jrun` command
-through `grep` / `head`, and do NOT put `2>&1` or other redirects inside the quotes. The `jrun '<cmd>'`
-wrapper already single-quotes the command, so a pipe or redirect there leaves the quote unterminated and
-the shell hangs forever at a `>` continuation prompt. Run `jrun <JDK> 'mvn ...'` on its own, read the
+through `grep` / `head`, and do NOT put `2>&1` or other redirects inside the quotes. Wrap the WHOLE command
+in ONE pair of single quotes as `jrun`'s single argument (`jrun` runs it via `bash -lc`). Appending a
+`| grep` or `>` makes you forget to close that quote -- the dangling `'` leaves the shell at a `>`
+continuation prompt waiting forever; and a command left UNquoted gets re-split, so a `<init>` in
+`-DexcludedMethods=` reads as a redirect and hangs too. Run `jrun <JDK> 'mvn ...'` on its own, read the
 whole output, and distill it yourself. Give every PIT/maven command a huge tool timeout (PIT is slow on a
 mutant-dense method); a slow command is not a hang.

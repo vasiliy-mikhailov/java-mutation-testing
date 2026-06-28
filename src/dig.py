@@ -11,7 +11,7 @@ import os, time, concurrent.futures
 import discover, gate
 import corpus_queue as queue
 from common import log, CLONES
-from maint import disk_free_gb
+from maint import disk_free_gb, reap_clone
 
 BATCH = int(os.environ.get("DIG_BATCH", "12"))
 WORKERS = int(os.environ.get("DIG_WORKERS", "3"))    # concurrent gates; keep low (CPU+Nexus)
@@ -27,7 +27,6 @@ def _gate_one(cand):
     if cand.get("build_tool") != "maven":
         log("fast", "dig_drop", repo=cand["repo"], reason="gradle_skip_preclone")
         return False
-    import subprocess as _sp
     dest = CLONES / cand["repo"].replace("/", "__")
     try:
         rec = gate.gate(cand["repo"])
@@ -41,7 +40,7 @@ def _gate_one(cand):
     except Exception as e:
         log("fast", "dig_error", repo=cand["repo"], err=str(e)[:200])
     finally:
-        _sp.run(["rm", "-rf", str(dest)], stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+        reap_clone(str(dest))
     return False
 
 

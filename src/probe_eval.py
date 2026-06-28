@@ -8,7 +8,7 @@ re-probes from the top of the pool; pass a larger pool for more margin.
 """
 import os, sys, json, shutil
 import draw, gate, pit, jdkdetect, sandbox
-from common import PROJECT, CLONES, CORPUS, log
+from common import DATA, CLONES, CORPUS, log
 
 
 def probe(n=20, pool=None):
@@ -23,7 +23,7 @@ def probe(n=20, pool=None):
         dest = CLONES / f"probe_{san}"
         try:
             gate.clone(t["repo"], dest=str(dest))
-            rel = os.path.relpath(str(dest), str(PROJECT))
+            rel = os.path.relpath(str(dest), str(DATA))     # DATA-relative; abs_repo resolves against DATA
             abs_repo = sandbox.abs_repo(rel)
             jdk = jdkdetect.detect_jdk(abs_repo)
             base = pit.run_pit(rel, t["target_class"], t["target_tests"], jdk=jdk, timeout=31_536_000)

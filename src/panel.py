@@ -147,10 +147,11 @@ def _run_container(agent, abs_repo, prompt, timeout):
 
 
 def run_agent(agent, repo_dir, target_class, target_tests, test_file, src_file,
-              jdk=21, timeout=31_536_000, open_pr=True):
+              jdk=None, timeout=31_536_000, open_pr=True):
     assert agent in AGENTS, agent
     abs_repo = sandbox.abs_repo(repo_dir)
-    jdk = jdkdetect.detect_jdk(abs_repo)
+    if jdk is None:
+        jdk = jdkdetect.detect_jdk(abs_repo)
     log("fast", "panel_jdk", agent=agent, repo=repo_dir, jdk=jdk)
     test_path = os.path.join(abs_repo, test_file)
 
@@ -188,9 +189,11 @@ def run_agent(agent, repo_dir, target_class, target_tests, test_file, src_file,
     # so we never emit a compile-broken build (worst case NO_GAIN, never a false BROKE_BUILD losing gains).
     if (not after["ok"]) and rc == 0 and "COMPILATION ERROR" in (after.get("log_tail", "") or ""):
         log("medium", "panel_compile_gate", agent=agent, repo=repo_dir, phase="broken")
-        _run_container(agent, abs_repo,
+        fix_rc, _ = _run_container(agent, abs_repo,
                        COMPILE_FIX_PROMPT.format(tests=target_tests, errors=after["log_tail"]),
                        timeout)
+        if fix_rc != 0:
+            rc = fix_rc   # a crashed/stalled fix-pass is infra (AGENT_ERROR), not a skill BROKE_BUILD
         after = pit.run_pit(repo_dir, target_class, target_tests, jdk=jdk, timeout=31_536_000)
         if (not after["ok"]) and "COMPILATION ERROR" in (after.get("log_tail", "") or ""):
             if original_test_text is not None:
