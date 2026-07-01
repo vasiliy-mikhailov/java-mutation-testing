@@ -12,7 +12,7 @@ from common import CORPUS, log
 REF = "openhands"
 PANEL = ("openhands", "opencode", "kilocode")
 SKILL_OK = {"PASS"}
-EXCLUDE = {"NO_BASELINE", "AGENT_ERROR", "MINION_CRASH", None}   # infra crash, not an agent gap (consistent across agents)
+EXCLUDE = {"NO_BASELINE", "AGENT_ERROR", "MINION_CRASH", "NO_SURVIVORS", None}   # infra / saturated (0-survivor), not an agent gap (matches sweep.py INVALID)
 
 
 def parity(n=3):

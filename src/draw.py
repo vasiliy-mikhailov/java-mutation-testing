@@ -31,7 +31,20 @@ def score(repo_rec, cand):
     return W_NTEST * n + W_REPO_TESTS * tc
 
 
+def _module_of_src(src_file):
+    """Repo-rel module dir from a main source path (the segment before '/src/main/', '.' for root).
+    Fallback for records predating gate's per-candidate module stamp; improve.py groups on this."""
+    i = (src_file or "").find("/src/main/")
+    return src_file[:i] if i > 0 else "."
+
+
 def draw(n=10, build_tool="maven"):
+    # load the class-keyed skip sets ONCE (otherwise they are re-read per candidate, and 'take every
+    # class' makes both the candidate count and saturated.txt large - that would be quadratic per draw)
+    skip = set()
+    for f in (queue.NO_BASELINE_FILE, queue.SATURATED_FILE):
+        if f.exists():
+            skip |= set(f.read_text().split())
     targets = []
     for r in queue.load():
         if not r.get("admitted"):
@@ -39,9 +52,9 @@ def draw(n=10, build_tool="maven"):
         if build_tool and r.get("build_tool") != build_tool:
             continue
         for c in r.get("candidate_classes", []):
-            # NO_BASELINE is CLASS-keyed (panel marks the precise un-baselineable class), so skip
-            # only that class — never the whole repo.
-            if queue.is_no_baseline(c["target_class"]):
+            # NO_BASELINE (un-baselineable) and SATURATED (zero survivors, nothing to improve) are
+            # both CLASS-keyed skips: drop only that class, never the whole repo.
+            if c["target_class"] in skip:
                 continue
             targets.append({
                 "repo": r["repo"], "repo_dir": r["repo_dir"], "sha": r.get("sha"),
@@ -49,6 +62,7 @@ def draw(n=10, build_tool="maven"):
                 "repo_test_count": r.get("test_count"),
                 "target_class": c["target_class"], "target_tests": c["target_tests"],
                 "test_file": c["test_file"], "src_file": c["src_file"],
+                "module": c.get("module") or _module_of_src(c.get("src_file", "")),
                 "n_test": c.get("n_test"), "score": round(score(r, c), 2),
             })
     # MERGE-VALUE first: star tier is the primary key, density score the tiebreak within a tier

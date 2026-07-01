@@ -337,11 +337,12 @@ def _run_pit_gradle(repo, abs_repo, target_class, target_tests, jdk, timeout):
         f.write(init)
     task = (proj_path + ":pitest") if proj_path != ":" else "pitest"
     gw = "./gradlew" if os.path.exists(os.path.join(abs_repo, "gradlew")) else "gradle"
-    cmd = ("chmod +x gradlew 2>/dev/null; " + gw +
-           " --no-daemon --console=plain -Dorg.gradle.java.installations.auto-download=false --init-script ijt-pitest.init.gradle " + task)
-    rc, out = _sandbox.run(cmd, repo, jdk=jdk, timeout=timeout)
     rdir = abs_repo if module_dir == "." else os.path.join(abs_repo, module_dir)
     report = os.path.join(rdir, "build", "reports", "pitest", "mutations.xml")
+    # stale-report guard (see pit_class): drop any prior report in the root container first
+    cmd = ("rm -f " + report + "; chmod +x gradlew 2>/dev/null; " + gw +
+           " --no-daemon --console=plain -Dorg.gradle.java.installations.auto-download=false --init-script ijt-pitest.init.gradle " + task)
+    rc, out = _sandbox.run(cmd, repo, jdk=jdk, timeout=timeout)
     result = {"rc": rc, "report": report, "ok": False, "junit5": j5,
               "module": module_dir, "log_tail": out}
     if rc == 0 and os.path.exists(report):
@@ -350,37 +351,73 @@ def _run_pit_gradle(repo, abs_repo, target_class, target_tests, jdk, timeout):
     return result
 
 
-def run_pit(repo, target_class, target_tests, jdk=21, timeout=31_536_000,
-            mutators="ALL", pit_version=PIT_VERSION):
+_S = "-s /sandbox-settings.xml"
+# skip project quality gates hostile to scoped mutation testing (a coverage/style threshold on the
+# whole build breaks our build when we run a subset) - jacoco check, checkstyle, enforcer, etc.
+_G = ("-Djacoco.skip=true -Dcheckstyle.skip=true -Denforcer.skip=true -Dspotless.check.skip=true "
+      "-Dspotless.apply.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dforbiddenapis.skip=true "
+      "-Danimal.sniffer.skip=true -Dmaven.javadoc.skip=true -Dlicense.skip=true")
+
+
+def build_module(repo, target_class, jdk=21, timeout=31_536_000):
+    """Walk-modules (P9): build + prepare the module owning target_class ONCE, so every file in it
+    reuses the reactor install instead of re-walking it per class. Returns {ok, jdk_used, rc,
+    log_tail, ctx}; ctx carries the module metadata pit_class needs (build_tool, module dir, pom dir,
+    junit5). Maven: `-pl <module> -am -DskipTests install` compiles + installs the module and its
+    upstream reactor deps into the shared .m2 ONCE, and the pitest plugin is injected into the module
+    pom ONCE. Gradle: a no-op returning ok=True (its build is fused into the pitest task, which must
+    be the FIRST gradle invocation - see _run_pit_gradle), so per-file pit_class runs full pitest.
+    A rc!=0 here is the walk-modules 'does not build' signal to skip the whole module wholesale."""
     abs_repo = _sandbox.abs_repo(repo)
     if _build_tool(abs_repo) == "gradle":
-        return _run_pit_gradle(repo, abs_repo, target_class, target_tests, jdk, timeout)
+        return {"ok": True, "jdk_used": jdk, "rc": 0, "log_tail": "",
+                "ctx": {"build_tool": "gradle"}}
     module = _module_of(abs_repo, target_class)
     pom_dir = abs_repo if module == "." else os.path.join(abs_repo, module)
     j5 = _uses_junit5(abs_repo, module)
+    if j5:
+        _inject_pitest(os.path.join(pom_dir, "pom.xml"), abs_repo)
+    if module == ".":
+        cmd = f"mvn -B {_S} {_G} -DskipTests test-compile"
+    else:
+        cmd = f"mvn -B {_S} {_G} -pl {module} -am -DskipTests install"
+    rc, out = _sandbox.run(cmd, repo, jdk=jdk, timeout=timeout)
+    return {"ok": rc == 0, "jdk_used": jdk, "rc": rc, "log_tail": out,
+            "ctx": {"build_tool": "maven", "module": module, "pom_dir": pom_dir, "j5": j5}}
+
+
+def pit_class(repo, ctx, target_class, target_tests, jdk=21, timeout=31_536_000,
+              mutators="ALL", pit_version=PIT_VERSION):
+    """Walk-files (P10): score ONE class with PIT, reusing the module build from build_module.
+    Maven: recompile ONLY this module (`-pl <module> -DskipTests test-compile`, no `-am install`, so
+    the agent's freshly-appended tests are picked up while the reactor is NOT re-walked - that is the
+    build-once win) then run PIT scoped to the one class. Gradle: the full per-class pitest task (no
+    separable build). Same result shape as the old run_pit."""
+    abs_repo = _sandbox.abs_repo(repo)
+    if ctx.get("build_tool") == "gradle":
+        return _run_pit_gradle(repo, abs_repo, target_class, target_tests, jdk, timeout)
+    module, pom_dir, j5 = ctx["module"], ctx["pom_dir"], ctx["j5"]
     common_d = (f"-DtargetClasses={target_class} -DtargetTests={target_tests} "
                 f"-Dmutators={mutators} -DoutputFormats=XML -DtimestampedReports=false "
                 f"-DfullMutationMatrix=false")
     if jdk >= 11:
         common_d += f" -DjvmArgs={ADD_OPENS}"
     if j5:
-        _inject_pitest(os.path.join(pom_dir, "pom.xml"), abs_repo)
         goal = "org.pitest:pitest-maven:mutationCoverage " + common_d
     else:
         goal = f"org.pitest:pitest-maven:{pit_version}:mutationCoverage " + common_d
-    S = "-s /sandbox-settings.xml"
-    # skip project quality gates hostile to scoped mutation testing (a coverage/style threshold on the
-    # whole build breaks our build when we run a subset) - jacoco check, checkstyle, enforcer, etc.
-    G = ("-Djacoco.skip=true -Dcheckstyle.skip=true -Denforcer.skip=true -Dspotless.check.skip=true "
-         "-Dspotless.apply.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dforbiddenapis.skip=true "
-         "-Danimal.sniffer.skip=true -Dmaven.javadoc.skip=true -Dlicense.skip=true")
-    if module == ".":
-        cmd = f"mvn -B {S} {G} -DskipTests test-compile && mvn -B {S} {G} {goal}"
-    else:
-        cmd = (f"mvn -B {S} {G} -pl {module} -am -DskipTests install && "
-               f"mvn -B {S} {G} -pl {module} {goal}")
-    rc, out = _sandbox.run(cmd, repo, jdk=jdk, timeout=timeout)
     report = os.path.join(pom_dir, "target", "pit-reports", "mutations.xml")
+    # stale-report guard: under the module walk a shared clone keeps target/ across files, so a prior
+    # file's report would be re-parsed if THIS PIT run writes none (e.g. a class with no mutations).
+    # rm it in the ROOT container (the host user cannot unlink root-owned build output) so a no-report
+    # run honestly reads as no-baseline instead of inheriting the previous class's numbers.
+    rmr = f"rm -f {report}; "
+    if module == ".":
+        cmd = rmr + f"mvn -B {_S} {_G} -DskipTests test-compile && mvn -B {_S} {_G} {goal}"
+    else:
+        cmd = rmr + (f"mvn -B {_S} {_G} -pl {module} -DskipTests test-compile && "
+                     f"mvn -B {_S} {_G} -pl {module} {goal}")
+    rc, out = _sandbox.run(cmd, repo, jdk=jdk, timeout=timeout)
     result = {"rc": rc, "report": report, "ok": False, "junit5": j5, "module": module,
               "log_tail": out}  # P2: full output, never a tail (the compile-gate scans this for COMPILATION ERROR)
     cm = _re.search(r"Line Coverage[^:]*:\s*(\d+)\s*/\s*(\d+)", out)
@@ -391,7 +428,28 @@ def run_pit(repo, target_class, target_tests, jdk=21, timeout=31_536_000,
     if rc == 0 and os.path.exists(report):
         result.update(parse_report(report))
         result["ok"] = True
+    elif rc == 0:
+        # rc==0 with no report at the (rm-guarded) path means PIT found nothing to mutate: a zero-mutant
+        # class (interface / enum / annotation / pure DTO). A valid EMPTY baseline, not a failure - so
+        # survived==0 and the caller saturates it, instead of a NO_BASELINE zombie that re-probes forever.
+        result.update({"ok": True, "total": 0, "killed": 0, "survived": 0, "score": 0.0, "survivors": []})
     return result
+
+
+def run_pit(repo, target_class, target_tests, jdk=21, timeout=31_536_000,
+            mutators="ALL", pit_version=PIT_VERSION):
+    """Back-compat single-class entry (gate probe, killtests, probe_eval, and panel when the module
+    is not pre-built): build the owning module then score the class. The module walk instead calls
+    build_module ONCE per module + pit_class per file, so the reactor is not re-walked per class."""
+    b = build_module(repo, target_class, jdk=jdk, timeout=timeout)
+    if not b["ok"]:
+        ctx = b["ctx"]
+        pom_dir = ctx.get("pom_dir", _sandbox.abs_repo(repo))
+        return {"rc": b["rc"], "ok": False, "junit5": ctx.get("j5", False),
+                "module": ctx.get("module", "."), "log_tail": b["log_tail"],
+                "report": os.path.join(pom_dir, "target", "pit-reports", "mutations.xml")}
+    return pit_class(repo, b["ctx"], target_class, target_tests, jdk=b["jdk_used"],
+                     timeout=timeout, mutators=mutators, pit_version=pit_version)
 
 
 if __name__ == "__main__":

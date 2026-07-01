@@ -44,7 +44,7 @@ def sweep(n_targets=3, agents=AGENTS):
                 log("medium", "sweep_error", agent=agent, repo=t["repo"], err=str(e)[:200])
 
     # tally per-agent
-    INVALID = {"NO_BASELINE", "AGENT_ERROR", "MINION_CRASH"}   # infra (un-scoreable / forked-JVM crash), not a skill outcome
+    INVALID = {"NO_BASELINE", "AGENT_ERROR", "MINION_CRASH", "NO_SURVIVORS"}   # infra + saturated (un-scoreable / forked-JVM crash / nothing to improve), not a skill outcome
     tally = {}
     for a in agents:
         rs = [r for r in rows if r.get("agent") == a]

@@ -74,19 +74,42 @@ def count_tests(repo_dir):
     return n, test_files
 
 
+def _rel_module(rel_path):
+    """Module dir from a repo-rel source path: the segment before /src/main/ or /src/test/
+    ('.' for a root-level source). Cheap per-candidate module resolution without re-globbing."""
+    rp = (rel_path or "").replace(os.sep, "/")
+    for marker in ("/src/main/", "/src/test/"):
+        i = rp.find(marker)
+        if i > 0:
+            return rp[:i]
+    return "."
+
+
+def _conventional_test(main_fqcn, module):
+    """The <pkg>.<Class>Test FQCN + repo-rel path the agent CREATES for a class that has no test."""
+    test_fqcn = main_fqcn + "Test"
+    prefix = "" if module == "." else module + "/"
+    return test_fqcn, prefix + "src/test/java/" + test_fqcn.replace(".", "/") + ".java"
+
+
 def candidate_classes(repo_dir):
-    """Pair each test class with its main class (Foo <- FooTest). Returns EVERY paired class
-    (FQCN + rel paths), ranked by test count so the densest targets run first — but NOT capped
-    (stoicism: cover all classes, never a top-N slice; the queue + lanes bound the work, not a limit)."""
+    """EVERY main class is a candidate (not only test-paired ones): a class with an existing FooTest
+    carries it; an untested class carries the conventional <pkg>.<Class>Test the agent will CREATE
+    (PIT baselines an untested class all-NO_COVERAGE, so a no-test class is a first-class target).
+    Each candidate is stamped with its owning module + a `has_test` flag, ranked test-density-first
+    (tested classes lead, untested at n_test 0), uncapped (stoicism: cover all classes)."""
     mains = {}
     for base, _, files in os.walk(repo_dir):
         if os.sep + "main" + os.sep not in base + os.sep:
             continue
         for fn in files:
-            if fn.endswith(".java"):
-                fq, _ = _fqcn(os.path.join(base, fn), repo_dir)
-                mains[fq] = os.path.relpath(os.path.join(base, fn), repo_dir)
-    cands = []
+            if not fn.endswith(".java") or fn in ("package-info.java", "module-info.java"):
+                continue  # not real classes; nothing to mutate or test
+            fq, _ = _fqcn(os.path.join(base, fn), repo_dir)
+            mains[fq] = os.path.relpath(os.path.join(base, fn), repo_dir)
+    # map each main FQCN to its BEST existing test (most @Test), same stem-pairing as before but
+    # keyed by the MAIN so every main resolves at most one test; unpaired mains stay untested
+    tests_for = {}
     for base, _, files in os.walk(repo_dir):
         if os.sep + "test" + os.sep not in base + os.sep:
             continue
@@ -98,18 +121,34 @@ def candidate_classes(repo_dir):
             if ntest == 0:
                 continue
             test_fq, _ = _fqcn(p, repo_dir)
+            test_rel = os.path.relpath(p, repo_dir)
+            test_mod = _rel_module(test_rel)
             stem = os.path.basename(fn)[:-5]
             for cand_stem in (stem[:-4] if stem.endswith("Test") else None,
                               stem[:-5] if stem.endswith("Tests") else None,
                               stem[4:] if stem.startswith("Test") and len(stem) > 4 else None):
                 if not cand_stem:
                     continue
-                hit = next((fq for fq in mains if fq.endswith("." + cand_stem) or fq == cand_stem), None)
+                matches = [fq for fq in mains if fq.endswith("." + cand_stem) or fq == cand_stem]
+                # prefer a main in the SAME module as the test (a cross-module FQCN collision would
+                # otherwise false-pair testA to mainB and build the wrong module); fall back to any hit
+                hit = next((fq for fq in matches if _rel_module(mains[fq]) == test_mod), None) \
+                    or (matches[0] if matches else None)
                 if hit:
-                    cands.append({"target_class": hit, "src_file": mains[hit],
-                                  "target_tests": test_fq,
-                                  "test_file": os.path.relpath(p, repo_dir), "n_test": ntest})
+                    if tests_for.get(hit, (None, None, -1))[2] < ntest:
+                        tests_for[hit] = (test_fq, test_rel, ntest)
                     break
+    cands = []
+    for fq, src_rel in mains.items():
+        module = _rel_module(src_rel)
+        if fq in tests_for:
+            test_fq, test_rel, ntest = tests_for[fq]
+            cands.append({"target_class": fq, "src_file": src_rel, "target_tests": test_fq,
+                          "test_file": test_rel, "module": module, "n_test": ntest, "has_test": True})
+        else:
+            test_fq, test_rel = _conventional_test(fq, module)
+            cands.append({"target_class": fq, "src_file": src_rel, "target_tests": test_fq,
+                          "test_file": test_rel, "module": module, "n_test": 0, "has_test": False})
     cands.sort(key=lambda c: -c["n_test"])
     return cands
 
@@ -163,6 +202,11 @@ def gate(repo, jdk=21, min_tests=20, run_green=True, probe_pit=True, timeout=31_
     cands = candidate_classes(repo_dir)
     if not cands:
         return {**rec, "admitted": False, "reason": "no_paired_target"}
+    # every main is now a candidate, so `cands` is non-empty even when NO test pairs to a main
+    # (production in another JVM lang, or behaviour-named suites). Reject that BEFORE the costly
+    # module build: admission needs at least one tested class for the PIT probe to validate on.
+    if not any(c.get("has_test") for c in cands):
+        return {**rec, "admitted": False, "reason": "no_tested_target"}
 
     module = _module_dir(repo_dir, cands[0]["target_class"])
     rec["module"] = module
@@ -196,6 +240,9 @@ def gate(repo, jdk=21, min_tests=20, run_green=True, probe_pit=True, timeout=31_
         # costs extra probes when the early ones fail, since it breaks on the first success
         probed = None
         for cand in cands:
+            if not cand.get("has_test", True):
+                continue  # admission validates PIT on a REAL tested class; an untested one baselines
+                # trivially at 0 coverage and would not prove the minion survives test execution
             probe = pit.run_pit(rec["repo_dir"], cand["target_class"], cand["target_tests"], jdk=jdk, timeout=31_536_000)
             if not probe.get("ok"):
                 # PIT can flake on the first run of a fresh clone (gradle still building the module
@@ -210,6 +257,14 @@ def gate(repo, jdk=21, min_tests=20, run_green=True, probe_pit=True, timeout=31_
         cand, probe = probed
         rec["probe_class"] = cand["target_class"]
         rec["probe_score"] = round(probe["score"], 4)
+    # unique owning modules, ranked by their densest class, so walk-modules (P9) can iterate them
+    # highest-value-first (admission itself stays cheapest-first on cands[0]'s module above)
+    mod_rank = {}
+    for c in cands:
+        m = c.get("module", ".")
+        mod_rank[m] = max(mod_rank.get(m, 0), c.get("n_test", 0) or 0)
+    rec["modules"] = [m for m, _ in sorted(mod_rank.items(), key=lambda kv: -kv[1])]
     rec.update({"admitted": True, "test_count": n_tests, "candidate_classes": cands})
-    log("slow", "gate_admit", repo=repo, test_count=n_tests, candidates=len(cands), module=module)
+    log("slow", "gate_admit", repo=repo, test_count=n_tests, candidates=len(cands),
+        module=module, modules=len(rec["modules"]))
     return rec

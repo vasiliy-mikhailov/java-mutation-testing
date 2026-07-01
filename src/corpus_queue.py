@@ -59,3 +59,39 @@ def mark_no_baseline(cls):
         if not is_no_baseline(cls):
             with open(NO_BASELINE_FILE, "a") as f:
                 f.write(cls + "\n")
+
+
+NO_BUILD_FILE = CORPUS / "no_build.txt"
+
+
+def is_no_build(key):
+    """True if this '<repo>#<module>' module was marked un-buildable, so walk-modules skips it
+    wholesale (all its files) without re-cloning. Distinct from the CLASS-keyed no_baseline:
+    a module that fails to compile is dead for every class it owns."""
+    return NO_BUILD_FILE.exists() and key in set(NO_BUILD_FILE.read_text().split())
+
+
+def mark_no_build(key):
+    CORPUS.mkdir(parents=True, exist_ok=True)
+    with _LOCK:
+        if not is_no_build(key):
+            with open(NO_BUILD_FILE, "a") as f:
+                f.write(key + "\n")
+
+
+SATURATED_FILE = CORPUS / "saturated.txt"
+
+
+def is_saturated(cls):
+    """True if this class baselined with ZERO survivors (a trivial zero-mutant class, or a suite that
+    already kills everything) so there is nothing for an agent to improve. Class-keyed like no_baseline;
+    draw skips it so 'take every class' does not re-probe trivial classes every cycle."""
+    return SATURATED_FILE.exists() and cls in set(SATURATED_FILE.read_text().split())
+
+
+def mark_saturated(cls):
+    CORPUS.mkdir(parents=True, exist_ok=True)
+    with _LOCK:
+        if not is_saturated(cls):
+            with open(SATURATED_FILE, "a") as f:
+                f.write(cls + "\n")

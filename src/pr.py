@@ -122,6 +122,19 @@ def _body(r):
     lines += [
         "The additions are append-only (no existing test is modified or weakened) and "
         "all pass against the current code (PIT requires a green baseline).",
+        "",
+        "---",
+        "",
+        "**How this was produced**",
+        "",
+        "This PR was generated with an AI-assisted pipeline built around mutation testing "
+        "(PIT). The pipeline mutates the target class (flipping conditions and boundary/edge "
+        "cases) and runs the existing tests against each mutant; where a mutant survives (the "
+        "existing tests do not catch that edge case) it writes a focused test for that case "
+        "and reruns PIT to confirm the new test actually kills that specific mutant. Every "
+        "added test is therefore verified to catch a concrete edge case the suite missed "
+        "before, rather than being speculative or redundant. Additive only (no production "
+        "code changed).",
     ]
     return "\n".join(lines)
 

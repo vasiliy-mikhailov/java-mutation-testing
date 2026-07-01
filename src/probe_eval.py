@@ -27,7 +27,7 @@ def probe(n=20, pool=None):
             abs_repo = sandbox.abs_repo(rel)
             jdk = jdkdetect.detect_jdk(abs_repo)
             base = pit.run_pit(rel, t["target_class"], t["target_tests"], jdk=jdk, timeout=31_536_000)
-            if base.get("ok"):
+            if base.get("ok") and base.get("survived", 0) > 0:  # a 0-survivor class is not improvable; never freeze it into the eval set
                 t2 = dict(t)
                 t2["jdk"] = jdk
                 t2["probe_score"] = round(base["score"], 4)

@@ -27,9 +27,14 @@ PROMPT = (
     "correct JDK container via the `jrun` helper: `jrun <JDK> \'<command>\'` "
     "(e.g. `jrun 17 \'mvn -B -ntp test\'`). FIRST detect the project JDK, then use it for all "
     "commands.\n"
-    "Target ONLY `{cls}` (scope PIT with -DtargetClasses={cls} -DtargetTests={tests}). Add new "
-    "JUnit test methods that make the suite detect the surviving mutants (raise the mutation score); do NOT modify or weaken existing tests. "
-    "Finish when the scoped PIT mutation score is higher and all tests are still green."
+    "Target ONLY `{cls}` (scope PIT with -DtargetClasses={cls} -DtargetTests={tests}). If the test "
+    "class `{tests}` does not exist yet, CREATE it following the module's existing test conventions "
+    "(assertion library, imports, naming, given/when/then). Add JUnit test methods that make the suite "
+    "detect the surviving mutants (raise the mutation score); do NOT modify or weaken existing tests. "
+    "Finish only when the scoped PIT mutation score is higher, all tests are green, and a "
+    "separate judge sub-agent (not the writer) has scored the added tests at reward 1.0, "
+    "following the skill judging step in sections 5 and 6. A self-score does not count; "
+    "spawn a fresh judge and act on its reward."
 )
 
 COMPILE_FIX_PROMPT = (
@@ -147,7 +152,8 @@ def _run_container(agent, abs_repo, prompt, timeout):
 
 
 def run_agent(agent, repo_dir, target_class, target_tests, test_file, src_file,
-              jdk=None, timeout=31_536_000, open_pr=True):
+              jdk=None, timeout=31_536_000, open_pr=True, module_ctx=None, module_built=False,
+              has_test=True):
     assert agent in AGENTS, agent
     abs_repo = sandbox.abs_repo(repo_dir)
     if jdk is None:
@@ -155,16 +161,47 @@ def run_agent(agent, repo_dir, target_class, target_tests, test_file, src_file,
     log("fast", "panel_jdk", agent=agent, repo=repo_dir, jdk=jdk)
     test_path = os.path.join(abs_repo, test_file)
 
-    base = pit.run_pit(repo_dir, target_class, target_tests, jdk=jdk, timeout=31_536_000)
+    # walk-files (P10): when the module is already built (build_module ran once in walk-modules),
+    # score with pit_class - it recompiles ONLY this module to pick up the agent's appended tests,
+    # never re-walking the reactor. Otherwise back-compat run_pit builds the owning module itself
+    # (gate probe / CLI / gradle).
+    def _score():
+        if module_built:
+            return pit.pit_class(repo_dir, module_ctx, target_class, target_tests,
+                                 jdk=jdk, timeout=31_536_000)
+        return pit.run_pit(repo_dir, target_class, target_tests, jdk=jdk, timeout=31_536_000)
+
+    base = _score()
     if not base["ok"]:
-        log("medium", "panel_baseline_fail", agent=agent, repo=repo_dir, cls=target_class)
-        import corpus_queue as _q
-        _q.mark_no_baseline(target_class)
+        log("medium", "panel_baseline_fail", agent=agent, repo=repo_dir, cls=target_class,
+            module_built=module_built)
+        if not module_built or not has_test:
+            # blacklist a baseline failure that is a TRUE class property: a fresh-clone failure, OR an
+            # UNTESTED class (its test file never existed, so there is no prior-file state that could
+            # contaminate it - PIT genuinely cannot baseline this class). For a TESTED class under the
+            # shared module clone a failure MAY be contamination from a prior file, so skip this cycle
+            # but do NOT permanently blacklist (it retries next cycle on a fresh module build).
+            import corpus_queue as _q
+            _q.mark_no_baseline(target_class)
         return {"agent": agent, "repo": repo_dir, "class": target_class,
                 "verdict": "NO_BASELINE", "rc": base["rc"]}
 
-    _install_skill(abs_repo)
+    if base.get("survived", 0) == 0:
+        # nothing to improve: a trivial zero-mutant class, or a suite that already kills everything.
+        # Skip the expensive agent entirely and mark it saturated so draw won't re-probe it — this is
+        # what makes 'take every class' affordable (a trivial class costs one cheap baseline, no agent).
+        import corpus_queue as _q
+        _q.mark_saturated(target_class)
+        log("medium", "panel_saturated", agent=agent, repo=repo_dir, cls=target_class,
+            total=base.get("total"), killed=base.get("killed"))
+        return {"agent": agent, "repo": repo_dir, "class": target_class, "verdict": "NO_SURVIVORS",
+                "killed_before": base.get("killed"), "total": base.get("total"),
+                "score_before": round(base["score"], 4)}
+
+    if not module_built:
+        _install_skill(abs_repo)   # under the walk, skills are installed once per clone in _run_module
     ntests_before = _ntests(test_path)
+    test_existed = os.path.exists(test_path)
     try:
         original_test_text = open(test_path, encoding="utf-8", errors="replace").read()
     except OSError:
@@ -181,7 +218,7 @@ def run_agent(agent, repo_dir, target_class, target_tests, test_file, src_file,
     except OSError:
         pass
 
-    after = pit.run_pit(repo_dir, target_class, target_tests, jdk=jdk, timeout=31_536_000)
+    after = _score()
 
     # COMPILE-GATE: a broken APPENDED test must not discard the whole run. If the re-score failed purely
     # because the test class no longer compiles (rc==0, "COMPILATION ERROR"), give the agent ONE focused
@@ -194,15 +231,18 @@ def run_agent(agent, repo_dir, target_class, target_tests, test_file, src_file,
                        timeout)
         if fix_rc != 0:
             rc = fix_rc   # a crashed/stalled fix-pass is infra (AGENT_ERROR), not a skill BROKE_BUILD
-        after = pit.run_pit(repo_dir, target_class, target_tests, jdk=jdk, timeout=31_536_000)
+        after = _score()
         if (not after["ok"]) and "COMPILATION ERROR" in (after.get("log_tail", "") or ""):
-            if original_test_text is not None:
-                try:
+            try:
+                if test_existed and original_test_text is not None:
                     with open(test_path, "w", encoding="utf-8") as _tf:
                         _tf.write(original_test_text)
-                except OSError:
-                    pass
-            after = pit.run_pit(repo_dir, target_class, target_tests, jdk=jdk, timeout=31_536_000)
+                elif not test_existed and os.path.exists(test_path):
+                    os.remove(test_path)  # the agent CREATED this test (untested class); revert = remove it
+                # existed-but-unreadable at start: leave as-is, never os.remove a real upstream test
+            except OSError:
+                pass
+            after = _score()
             log("medium", "panel_compile_gate", agent=agent, repo=repo_dir, phase="reverted")
         else:
             log("medium", "panel_compile_gate", agent=agent, repo=repo_dir, phase="fixed")

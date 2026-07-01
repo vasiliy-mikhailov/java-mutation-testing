@@ -33,10 +33,13 @@ tool's vocabulary. The goal is to make the suite *catch* what it currently misse
 - `git`: commit a baseline first so your additions are an isolated diff.
 
 ## 1. Pick one target class
+- If the harness names a class, use exactly that one (it may already have a `FooTest`, or none yet).
 - **Coverage first**: a class with **high line coverage but low mutation score** is the richest
   target: the tests run it but don't assert on it.
-- Otherwise pick a **logic-dense** class (branches, arithmetic, parsing, state) that has an existing
-  `FooTest`. Skip trivial getters/DTOs.
+- An **untested** logic-dense class (branches, arithmetic, parsing, state) is just as good a target:
+  it baselines at all-`NO_COVERAGE` (every mutant survives), and you raise the score by writing its
+  first test from scratch (§4).
+- Skip trivial getters/DTOs/enums: they have nothing to mutate, so PIT finds no survivors.
 
 Let `C` = fully-qualified class, `T` = its test class or package glob.
 
@@ -125,6 +128,9 @@ Map the mutator to the assertion it needs:
 - Your assertions must **pass against the real (unmutated) code**. A test asserting the *mutant's*
   wrong behaviour fails the green baseline: that's the build telling you the assertion is wrong.
 - Match the existing test class's framework, imports, and style; put new methods in the matching `FooTest`.
+  If the class has **no test yet**, CREATE `FooTest` following a sibling test in the same module (its
+  assertion library, imports, naming, package layout), then add methods to it, the same append-only
+  discipline starting from an empty test.
 
 ## 5. The Ralph loop: re-run yourself until the reward stops
 Treat §3→§4→§5 as one loop body and **repeat it on yourself**, Ralph-style, until the reward dries up:
@@ -169,8 +175,14 @@ Workflow:
 4. When every method is done, run ONE whole-class PIT (no `withHistory`) to confirm the overall score rose and
    ALL tests compile + are green. If the build is broken, delegate the fix to a sub-agent (hand it the javac
    errors).
-5. You are done when the whole-class build is green and the mutation score is up.
-For a tiny class (1-3 methods) just write the tests yourself; the delegation overhead only pays off past
+5. Have the result scored by a separate sub-agent, not by your own opinion (§6). A self-score earns nothing
+   here: the reward that counts comes from a fresh sub-agent that did not write these tests and shares none of
+   your context. Give it the test class and the §6 rubric and let it score the added diff. If its reward is
+   below `1.0`, delegate fixes for the offending lines to a writer sub-agent (without dropping a kill) and
+   re-judge until the judge reaches `1.0`.
+6. You are done when the whole-class build is green, the mutation score is up, and the judge's reward is `1.0`.
+For a tiny class (1-3 methods) just write the tests yourself, then still hand them to a separate judge to
+score (a self-score earns nothing); the delegation overhead only pays off past
 one context's worth of work.
 
 **Make the loop cheap so you can be exhaustive:** add **`-DwithHistory=true`** to your iterative PIT
@@ -194,11 +206,14 @@ discarded as BROKE_BUILD.
 ## 6. Mergeability reward: a green test a maintainer won't merge scores nothing
 Mutation score makes a test **strong**; it does not make it **mergeable**. Maintainers reject tests that
 reach into internals, assert nothing, or flake, so "avoid that wart" is empty advice unless breaking it
-**costs reward**. **Score every test file you touch by your own judgment, no tooling required.** This
-skill ships as a pure rubric: the environment running it may have no Python, no install step, nothing but
-you and the file, so *you* are the judge. Read the test diff **you added** (compare against the upstream
-copy of the file so pre-existing code is never counted), and for each rule below count the **lines of your
-added test code** that violate it.
+**costs reward**. **The agent that wrote the tests never scores them** -- grading your own work while you
+are driven to finish is a conflict of interest that inflates the score. A **separate judge sub-agent**, one
+that did not write the tests and shares none of your context, scores them instead. This
+skill ships as a pure rubric: the environment may have no Python, no install step, nothing but a fresh model
+and the file, so the judge is just another sub-agent applying the rules below. The judge reads the test diff
+**the writer added** (compare against the upstream copy of the file so pre-existing code is never counted),
+and for each rule below counts the **lines of added test code** that violate it. Its only job is an accurate
+penalty; it gets nothing from the tests passing, so it has no reason to under-count.
 
 **reward = 0.9 ^ (penalty)**: `1.0` means nothing broken; **penalty = the total number of LINES of bad
 test code**, summed across every quality rule. A rule's penalty is how many lines of *added* test code
@@ -224,6 +239,9 @@ against the upstream baseline, never pre-existing upstream code. The rules:
 | 12 | no-trivial-accessor-test | pure getter/setter/`equals`/`hashCode`/`toString` tests: maintainers see these as noise; keep only tests with real logic (validation, exceptions, behaviour) |
 | 13 | no-inner-class | declares a nested / `@Nested` / helper class inside the test; keep tests flat; lift fixtures to the public API or a top-level test helper |
 | 14 | no-comment-spam | standalone comment lines out-pace code more than **1 per 4 code lines**; comment *why*, not *what*; the assertions are the documentation. Trailing `// why` on a code line is fine (it's a code line, not a comment line); penalty = comment lines over the 1:4 budget |
+| 15 | no-tooling-exhaust-comments | a comment names a PIT mutant operator (`InlineConstant`, `NonVoidMethodCall`, `NO_COVERAGE`, `EQUAL_ELSE`), says "kills the surviving mutant", or hardcodes a production line number (`at line 99-105`, `on line 58`); these document the tool and rot when the source shifts. State the behaviour under test instead (e.g. "charset comes from Content-Encoding when Content-Type is absent"); penalty = offending comment lines |
+| 16 | no-thin-delegator | the class under test is a trivial wrapper whose real logic lives in another class (e.g. `PathNaturalOrderComparator` just delegates to `NaturalOrderComparator`); its tests belong on the delegate. Confirm the class has real branching of its own before testing it directly: **binary** |
+| 17 | repo-idiomatic | the added tests do not match the target repo's own conventions. Before writing, read the repo's CONTRIBUTING and one existing test in the same module, then follow its assertion library, structure, naming, and any given/when/then. A green compile plus checkstyle and spotless is necessary but not sufficient: assertj #4310 built clean yet was closed for missing given/when/then; penalty = lines that diverge from the module idiom |
 
 **This is part of the §5 loop, not a final gate.** Each pass, once PIT is green, re-judge the test against
 the rubric and treat every FAILED rule as more work. Fix each broken rule **without losing a kill**:
@@ -255,7 +273,10 @@ Open a PR only once the §6 mergeability **reward is 1.0** (or the only residual
 unremovable without losing a kill). Branch, commit the **append-only** test additions (plus the PIT build
 config if added for JUnit 5), and open a PR whose body reports the **mutation score AND line coverage
 before → after**, the additional mutants now detected, and that the additions are append-only, green, and
-clear the mergeability rules.
+clear the mergeability rules. Always end the body with a short **How this was produced** disclosure: the PR
+was generated by an AI-assisted pipeline based on mutation testing (PIT surfaces edge cases the existing
+tests miss, a focused test is written for each surviving mutant, and PIT is rerun to confirm it kills that
+mutant, so every added test is verified). Disclose the AI methodology explicitly; never omit it.
 
 ---
 
