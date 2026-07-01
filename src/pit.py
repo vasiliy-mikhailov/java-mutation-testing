@@ -1,4 +1,4 @@
-"""PIT report parsing + runner for java-mutation-testing.
+"""PIT report parsing + runner for improve-java-tests.
 
 run_pit handles single- AND multi-module Maven repos: it locates the module that contains the
 target class, builds that module + its reactor deps, injects the pitest(+junit5) plugin into
@@ -333,12 +333,12 @@ def _run_pit_gradle(repo, abs_repo, target_class, target_tests, jdk, timeout):
     j5 = _gradle_uses_junit5(abs_repo, module_dir)
     jver = _gradle_jupiter_version(abs_repo) if j5 else None
     init = _gradle_init_script(target_class, target_tests, j5, proj_path, jdk, jver)
-    with open(os.path.join(abs_repo, "jmt-pitest.init.gradle"), "w") as f:
+    with open(os.path.join(abs_repo, "ijt-pitest.init.gradle"), "w") as f:
         f.write(init)
     task = (proj_path + ":pitest") if proj_path != ":" else "pitest"
     gw = "./gradlew" if os.path.exists(os.path.join(abs_repo, "gradlew")) else "gradle"
     cmd = ("chmod +x gradlew 2>/dev/null; " + gw +
-           " --no-daemon --console=plain -Dorg.gradle.java.installations.auto-download=false --init-script jmt-pitest.init.gradle " + task)
+           " --no-daemon --console=plain -Dorg.gradle.java.installations.auto-download=false --init-script ijt-pitest.init.gradle " + task)
     rc, out = _sandbox.run(cmd, repo, jdk=jdk, timeout=timeout)
     rdir = abs_repo if module_dir == "." else os.path.join(abs_repo, module_dir)
     report = os.path.join(rdir, "build", "reports", "pitest", "mutations.xml")

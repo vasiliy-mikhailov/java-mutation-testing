@@ -10,11 +10,11 @@ import os, re, json, time, shutil, shlex, subprocess, uuid
 import pit, sandbox, jdkdetect
 from common import PROJECT, env, log, CORPUS
 
-SKILL_SRC = PROJECT / "skills" / "improve-mutation-score" / "SKILL.md"
-SKILL_REL = ".openhands/skills/improve-mutation-score/SKILL.md"
+SKILL_SRC = PROJECT / "skills" / "improve-java-tests" / "SKILL.md"
+SKILL_REL = ".openhands/skills/improve-java-tests/SKILL.md"
 # Absolute backstop for an agent run = ~100 years, i.e. effectively NEVER. We do NOT cap the model on
 # wall-clock - that guillotines productive long runs (a God-class legitimately needs many hours). The
-# only real reaper is STALL DETECTION (JMT_STALL_SECS of zero new output) in _run_container.
+# only real reaper is STALL DETECTION (IJT_STALL_SECS of zero new output) in _run_container.
 AGENT_BACKSTOP = 100 * 365 * 24 * 3600
 TEST_ANNO = re.compile(r"@(Test|ParameterizedTest|RepeatedTest)\b")
 AGENTS = ("openhands", "opencode", "kilocode")
@@ -22,7 +22,7 @@ AGENTS = ("openhands", "opencode", "kilocode")
 PROMPT = (
     "This Maven project's tests pass but do not fully verify class `{cls}`. Raise its PIT "
     "mutation score. READ the skills in `.openhands/skills/` FIRST: `detect-java-version` and "
-    "`improve-mutation-score` (`{skill}`).\n"
+    "`improve-java-tests` (`{skill}`).\n"
     "THIS ENVIRONMENT HAS NO LOCAL JDK SWITCHING. Run EVERY maven/test/PIT command inside the "
     "correct JDK container via the `jrun` helper: `jrun <JDK> \'<command>\'` "
     "(e.g. `jrun 17 \'mvn -B -ntp test\'`). FIRST detect the project JDK, then use it for all "
@@ -82,29 +82,29 @@ def _spec(agent, abs_repo, prompt, timeout):
                 "-e", f"OH_EVENT_LOG={ev_log}", "-e", f"OH_PERSIST_DIR={persist}"]
         inner = (f"timeout {AGENT_BACKSTOP} /opt/ohvenv/bin/python "
                  f"{PROJECT}/src/panel_oh_run.py {abs_repo} {q}")
-        return "jmt-panel-openhands", envs, inner, ev_log
+        return "ijt-panel-openhands", envs, inner, ev_log
     # node agents (opencode / kilocode) share one image + config-copy idiom
     envs = ["-e", f"OC_KEY={key}", "-e", f"OPENAI_API_KEY={key}", "-e", f"QWEN_API_KEY={key}"]
     cfg, cli = ("opencode", "opencode") if agent == "opencode" else ("kilo", "kilo")
     inner = (f"export HOME=/root; mkdir -p /root/.config/{cfg}; "
              f"cp /cfg/{cfg if agent=='opencode' else 'kilo'}.json /root/.config/{cfg}/opencode.json; "
              f"cd {abs_repo}; timeout {AGENT_BACKSTOP} {cli} run -m qwen/qwen-3.6-27b-fp8 {q}")
-    return "jmt-panel-node", envs, inner, None
+    return "ijt-panel-node", envs, inner, None
 
 
 def _run_container(agent, abs_repo, prompt, timeout):
     image, envs, inner, ev_log = _spec(agent, abs_repo, prompt, timeout)
-    name = f"jmt-panel-{agent}-{int(time.time())}-{uuid.uuid4().hex[:6]}"
+    name = f"ijt-panel-{agent}-{int(time.time())}-{uuid.uuid4().hex[:6]}"
     args = (["docker", "run", "--rm", "--name", name, "--network", sandbox.NETWORK,
              "--memory", "6g", "--cpus", "4"] + envs +
             ["-v", f"{PROJECT}:{PROJECT}", "-v", "/var/run/docker.sock:/var/run/docker.sock",
-             "-v", f"{PROJECT}/docker/jrun:/usr/local/bin/jrun:ro", "-e", f"JMT_HOME={PROJECT}",
+             "-v", f"{PROJECT}/docker/jrun:/usr/local/bin/jrun:ro", "-e", f"IJT_HOME={PROJECT}",
              "-w", abs_repo, image, "bash", "-lc", inner])
     # Hang guard = STALL DETECTION, not a wall-clock cap. A productive run is never cut; only a stuck
     # one is reaped. Watch the freshest of {OH dialog log, container stdout} mtime - while the agent
     # emits events the files keep growing. Kill only after STALL secs of zero progress. The inner
     # The inner `timeout {AGENT_BACKSTOP}` plus the hard line below are a ~100y formality, never a real cap.
-    STALL = int(env("JMT_STALL_SECS", "31536000"))   # default 1y => effectively never; only a truly dead container is reaped
+    STALL = int(env("IJT_STALL_SECS", "31536000"))   # default 1y => effectively never; only a truly dead container is reaped
     out_path = f"/tmp/{name}.log"
     killed = None
     start = time.time()

@@ -1,6 +1,6 @@
-"""Shared env, paths, and frog's-eye logging for java-mutation-testing.
+"""Shared env, paths, and frog's-eye logging for improve-java-tests.
 
-Logs are JSON lines under /var/log/observe/app/jmt/<stream>.jsonl so the external
+Logs are JSON lines under /var/log/observe/app/ijt/<stream>.jsonl so the external
 frog's eye auto-discovers them (no wiring). Streams mirror the digest cadence:
   fast   = per-step events (container start/exit, pit run)
   medium = per-target / per-survivor outcomes
@@ -8,16 +8,16 @@ frog's eye auto-discovers them (no wiring). Streams mirror the digest cadence:
 """
 import os, json, time, pathlib
 
-PROJECT = pathlib.Path(os.environ.get("JMT_HOME", os.path.expanduser("~/java-mutation-testing/current_attempt")))
-# DATA = the iteration's data root (corpus/clones/scratch); JMT_HOME stays the CODE root.
+PROJECT = pathlib.Path(os.environ.get("IJT_HOME", os.path.expanduser("~/improve-java-tests/current_attempt")))
+# DATA = the iteration's data root (corpus/clones/scratch); IJT_HOME stays the CODE root.
 # Defaults to PROJECT so the pre-reorg flat layout keeps working unchanged.
-DATA = pathlib.Path(os.environ.get("JMT_DATA", str(PROJECT / "current_iteration")))
+DATA = pathlib.Path(os.environ.get("IJT_DATA", str(PROJECT / "current_iteration")))
 CLONES = DATA / "clones"
 CORPUS = DATA / "corpus"
 SCRATCH = DATA / "scratch"
 SETTINGS = PROJECT / "docker" / "sandbox-settings.xml"
 
-LOG_DIR = pathlib.Path("/var/log/observe/app/jmt")
+LOG_DIR = pathlib.Path("/var/log/observe/app/ijt")
 
 
 def _env_file():

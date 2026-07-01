@@ -5,7 +5,7 @@ gates each (clone HEAD -> compile -> @Test count -> green -> candidate classes);
 are admitted (with their star count threaded through for the draw). Bounded: gh<=30/min so
 discover is sequential; gating runs a few workers. Guards disk. Logs to frog's eye. Stops at
 DIG_TARGET admitted (0 = run forever, topping up). Designed to run inside a `docker run -d`
-container (jmt-orch image) — nothing on the host but docker.
+container (ijt-orch image) — nothing on the host but docker.
 """
 import os, time, concurrent.futures
 import discover, gate

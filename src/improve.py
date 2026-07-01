@@ -3,7 +3,7 @@ corpus, processes already-PASSED targets FIRST (re-improve / re-score under the 
 every other ranked target, across IMPROVE_WORKERS parallel OpenHands runs. Sleeps + redraws when the
 corpus is momentarily dry (dig keeps filling). Opens a private-mirror PR only the FIRST time a class
 passes (no duplicate PRs on re-runs). Each target gets its own clone dir + uniquely-named panel
-container, so workers never collide. No cap — stop with `docker rm -f jmt-improve`.
+container, so workers never collide. No cap — stop with `docker rm -f ijt-improve`.
   python improve.py [cycle_sleep_secs=600] [pool=500]   (workers via IMPROVE_WORKERS env, default 2)
 """
 import sys, os, json, glob, subprocess, time
@@ -17,7 +17,7 @@ IMPROVE_WORKERS = int(os.environ.get("IMPROVE_WORKERS", "2"))
 def _verdicts():
     """(passed_classes, captured_classes). 'captured' = already persisted to the LOCAL store
     (pr.GENERATED/<slug>/meta-<class>.json — one meta PER CLASS), since PASSes now persist locally,
-    not to jmt-* mirror PRs. Reading the panel JSON's old pr.url would keep classes captured by
+    not to ijt-* mirror PRs. Reading the panel JSON's old pr.url would keep classes captured by
     now-DELETED mirrors stuck in has_pr forever, so they would never re-persist their fresh output."""
     import pr
     passed, has_pr = set(), set()

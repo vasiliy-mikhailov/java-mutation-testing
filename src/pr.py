@@ -5,7 +5,7 @@ additions; the body states the mutation score AND line coverage before->after an
 
 mode="private" (default): persist the strengthened test file(s) to a LOCAL store
   (GENERATED/<name>/) + a meta.json. NO GitHub repo is created (the operator dislikes per-repo
-  jmt-* mirror repos). The upstream PR pipeline reads the generated tests from there.
+  ijt-* mirror repos). The upstream PR pipeline reads the generated tests from there.
 mode="upstream": fork upstream to the authed user and open the PR against upstream.
 Commits ONLY the changed test file (never build artifacts). gh provides auth.
 """
@@ -26,13 +26,13 @@ def _diff_added(abs_repo, tf, base_sha):
     return "\n".join(l[1:] for l in out.splitlines()
                      if l.startswith("+") and not l.startswith("+++"))
 
-# The operator dislikes per-repo jmt-* mirror repos cluttering GitHub. Instead of mirroring a PASS
-# into <login>/jmt-<name> and opening a PR there, persist the strengthened test file(s) to a local
+# The operator dislikes per-repo ijt-* mirror repos cluttering GitHub. Instead of mirroring a PASS
+# into <login>/ijt-<name> and opening a PR there, persist the strengthened test file(s) to a local
 # store; the upstream PR pipeline reads the generated tests from here.
 # MUST live under current_attempt (the only host path bind-mounted into the panel/improve containers),
 # else the persist lands in the container's ephemeral FS and is lost. current_iteration is runtime data.
-GENERATED = os.environ.get("JMT_GENERATED",
-                           "/home/vmihaylov/java-mutation-testing/current_attempt/current_iteration/jmt-generated")
+GENERATED = os.environ.get("IJT_GENERATED",
+                           "/home/vmihaylov/improve-java-tests/current_attempt/current_iteration/ijt-generated")
 
 
 def _slug(repo_full):
@@ -218,7 +218,7 @@ def open_panel_pr(repo_dir, result, agent, min_killed=1):
         _sh(["git", "-C", abs_repo, "add", f])
     msg = (f"test({cls}): {agent} killed {delta} PIT mutants "
            f"({result['score_before']:.1%} -> {result['score_after']:.1%})\n\n"
-           f"Append-only PIT-guided tests via the improve-mutation-score skill.")
+           f"Append-only PIT-guided tests via the improve-java-tests skill.")
     _sh(["git", "-C", abs_repo, "commit", "-m", msg])
     saved, out = _persist_local(abs_repo, _slug(repo_full), result, test_files, agent=agent, base_sha=base_sha)
     log("slow", "panel_pr", mode="local", agent=agent, path=out, cls=result["class"], files=len(saved))

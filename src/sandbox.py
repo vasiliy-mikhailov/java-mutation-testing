@@ -14,12 +14,12 @@ GRADLE_VOL = "oh-gradle-cache"
 
 
 def image(jdk):
-    return f"java-{jdk}-mutation-testing-sandbox"
+    return f"java-{jdk}-improve-java-tests-sandbox"
 
 
 def abs_repo(repo):
     """Resolve a repo path to its REAL host absolute path. Relative paths are taken
-    under JMT_HOME (mounted identically in orch + sandbox), so the host daemon's bind
+    under IJT_HOME (mounted identically in orch + sandbox), so the host daemon's bind
     mount resolves the same path the orchestrator sees."""
     repo = str(repo)
     return repo if os.path.isabs(repo) else str(DATA / repo)

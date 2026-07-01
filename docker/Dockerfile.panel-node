@@ -1,7 +1,7 @@
-# jmt-panel-node: the opencode + kilocode legs of the P3 panel. Sandbox base (JDK21+Maven+git
+# ijt-panel-node: the opencode + kilocode legs of the P3 panel. Sandbox base (JDK21+Maven+git
 # +Nexus) so the agent runs PIT itself; + Node 20 and the two headless CLIs. Provider configs
 # (qwen, apiKey:{env:OC_KEY}) baked at /cfg; the runner copies them to ~/.config/{opencode,kilo}.
-FROM java-21-mutation-testing-sandbox
+FROM java-21-improve-java-tests-sandbox
 RUN apt-get update && apt-get install -y --no-install-recommends \
       curl ca-certificates gnupg jq unzip \
  && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \

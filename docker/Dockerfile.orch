@@ -1,5 +1,5 @@
-# jmt-orch: orchestration container. Runs the pipeline python (discover/gate/pit/killtests),
-# spawns java-<JDK>-mutation-testing-sandbox siblings via the mounted docker socket, clones
+# ijt-orch: orchestration container. Runs the pipeline python (discover/gate/pit/killtests),
+# spawns java-<JDK>-improve-java-tests-sandbox siblings via the mounted docker socket, clones
 # via gh. No JDK/Maven here — all heavy build/PIT work happens in sandbox containers.
 FROM python:3-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \

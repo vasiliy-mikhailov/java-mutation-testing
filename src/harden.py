@@ -13,7 +13,7 @@ import sweep
 LEARN_AGENTS = ("openhands",)   # skill learning = OpenHands oracle only (fast)
 from common import PROJECT, CORPUS, log
 
-SKILL = PROJECT / "skills" / "improve-mutation-score" / "SKILL.md"
+SKILL = PROJECT / "skills" / "improve-java-tests" / "SKILL.md"
 BASELINE = CORPUS / "harden_baseline.json"
 LOG = CORPUS / "harden_log.jsonl"
 

@@ -1,7 +1,7 @@
-# java-mutation-testing
+# improve-java-tests
 
 The research pipeline that **forges and scores** the portable
-[java-mutation-testing-skill](https://github.com/vasiliy-mikhailov/java-mutation-testing-skill) —
+[improve-java-tests-skill](https://github.com/vasiliy-mikhailov/improve-java-tests-skill) —
 Agent Skills that raise a Java project's PIT mutation kill-rate. This repo is the *engine*, not the
 product: it discovers candidate repos, runs them through off-the-shelf agents (OpenHands, opencode,
 kilocode) following the skill, scores the result with PIT, and opens improvement PRs.

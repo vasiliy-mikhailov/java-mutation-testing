@@ -20,9 +20,9 @@ import os, sys, traceback, time, json
 # A SLOW inference response still waits (1y request timeout). A DEAD connection (peer/proxy gone) is
 # detected by keepalive probes - idle 60s, then every 15s x4 (~120s) -> read error -> num_retries reconnects.
 import socket as _socket
-_KA = (int(os.environ.get('JMT_TCP_KEEPIDLE', '60')),
-       int(os.environ.get('JMT_TCP_KEEPINTVL', '15')),
-       int(os.environ.get('JMT_TCP_KEEPCNT', '4')))
+_KA = (int(os.environ.get('IJT_TCP_KEEPIDLE', '60')),
+       int(os.environ.get('IJT_TCP_KEEPINTVL', '15')),
+       int(os.environ.get('IJT_TCP_KEEPCNT', '4')))
 _OrigSocket = _socket.socket
 class _KeepAliveSocket(_OrigSocket):
     def __init__(self, *a, **k):
@@ -59,19 +59,19 @@ try:
     # max_output_tokens=131072 (the model serves 262k ctx; the condenser bounds the prompt so
     # prompt+output stays under the ceiling). reasoning_effort=None (OpenHands' default 'high'
     # conflicts). drop_params=False keeps extra_body intact.
-    llm = LLM(model=model, base_url=base, api_key=key, usage_id="jmt-oh",
+    llm = LLM(model=model, base_url=base, api_key=key, usage_id="ijt-oh",
               max_output_tokens=131072, temperature=0.0, native_tool_calling=True,
               reasoning_effort=None, drop_params=False,
               litellm_extra_body={"chat_template_kwargs": {"enable_thinking": True}}, **_R)
     # condenser: thinking OFF (thinking-on dumps CoT into the summary, poisoning the agent's history)
-    cond = LLM(model=model, base_url=base, api_key=key, usage_id="jmt-cond",
+    cond = LLM(model=model, base_url=base, api_key=key, usage_id="ijt-cond",
                max_output_tokens=4096, temperature=0.0, native_tool_calling=False,
                reasoning_effort=None, drop_params=False,
                litellm_extra_body={"chat_template_kwargs": {"enable_thinking": False}}, **_R)
     register_builtins_agents(enable_browser=False)  # bash-runner / code-explorer / general-purpose subagents
-    # register custom JMT sub-agent types (mutation-tester) from JMT_HOME/docker/subagents;
+    # register custom JMT sub-agent types (mutation-tester) from IJT_HOME/docker/subagents;
     # register_agent_if_absent will NOT let the builtins overwrite these.
-    _sa_dir = _Path(os.environ.get("JMT_HOME", os.getcwd())) / "docker" / "subagents"
+    _sa_dir = _Path(os.environ.get("IJT_HOME", os.getcwd())) / "docker" / "subagents"
     if _sa_dir.is_dir():
         for _ad in load_agents_from_dir(_sa_dir):
             register_agent_if_absent(_ad.name, agent_definition_to_factory(_ad), _ad)

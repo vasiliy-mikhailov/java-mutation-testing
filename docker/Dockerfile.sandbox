@@ -1,8 +1,8 @@
-# java-<JDK>-mutation-testing-sandbox: per-LTS build+PIT execution env. PURE tooling only —
+# java-<JDK>-improve-java-tests-sandbox: per-LTS build+PIT execution env. PURE tooling only —
 # JDK + Maven + git/ripgrep. NO scripts and NO config are baked in: the Nexus settings.xml, the
 # gradle init script, and all pipeline code live OUTSIDE the image and are bind-mounted at runtime
 # (settings via `mvn -s /sandbox-settings.xml`), so editing them NEVER needs an image rebuild.
-#   docker build -f docker/Dockerfile.sandbox --build-arg JDK=21 -t java-21-mutation-testing-sandbox .
+#   docker build -f docker/Dockerfile.sandbox --build-arg JDK=21 -t java-21-improve-java-tests-sandbox .
 ARG JDK=21
 FROM maven:3.9-eclipse-temurin-${JDK}
 RUN apt-get update && apt-get install -y --no-install-recommends \
